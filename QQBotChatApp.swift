@@ -2528,8 +2528,7 @@ struct MessageRow: View {
     // Short messages should be a narrow bubble, not a full-width bar.
     private var textBubbleWidth: CGFloat {
         let plain = message.text.isEmpty ? "[空消息]" : message.text
-        if plain.contains("
-") { return bubbleMaxWidth - 22 }
+        if plain.contains("\n") { return bubbleMaxWidth - 22 }
         let font = UIFont.systemFont(ofSize: 17 * store.fontScale)
         let measured = (plain as NSString).size(withAttributes: [.font: font]).width
         let needed = ceil(measured) + 22 + 46 + 8
