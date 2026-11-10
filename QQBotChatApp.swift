@@ -1526,6 +1526,18 @@ struct ChatView: View {
         return all.filter { $0.text.localizedCaseInsensitiveContains(needle) }
     }
 
+    private func handleQuote(_ target: ChatMessage) { quoting = target }
+    private func handlePreview(_ image: UIImage) { previewImage = image; showPreview = true }
+    private func handleEdit(_ target: ChatMessage) { editingMessage = target; editText = target.text }
+    private func handlePlayVideo(_ url: URL) { playingVideoURL = url }
+    private func handleLongPress(_ target: ChatMessage) { menuMessage = target }
+    private func handleForward(_ target: ChatMessage) { forwardMessage = target; showForwardPicker = true }
+    private func handleReactionUsers(_ messageID: String) {
+        reactionMessageID = messageID
+        showReactionUsers = true
+        Task { await store.loadReactionUsers(conversationID: conversationID, messageID: messageID) }
+    }
+
     @ViewBuilder
     private var chatBackground: some View {
         if let name = store.chatBackgroundImage, let image = store.image(named: name) {
@@ -1819,18 +1831,14 @@ struct ChatView: View {
                                     message: message,
                                     mergedTop: mergedTop,
                                     mergedBottom: mergedBottom,
-                                    onQuote: { quoting = $0 },
+                                    onQuote: handleQuote,
                                     onJump: { target in withAnimation { proxy.scrollTo(target, anchor: .center) } },
-                                    onPreview: { image in previewImage = image; showPreview = true },
-                                    onEdit: { target in editingMessage = target; editText = target.text },
-                                    onReactionUsers: { messageID in
-                                        reactionMessageID = messageID
-                                        showReactionUsers = true
-                                        Task { await store.loadReactionUsers(conversationID: conversationID, messageID: messageID) }
-                                    },
-                                    onPlayVideo: { url in playingVideoURL = url },
-                                    onLongPress: { target in menuMessage = target },
-                                    onForward: { target in forwardMessage = target; showForwardPicker = true }
+                                    onPreview: handlePreview,
+                                    onEdit: handleEdit,
+                                    onReactionUsers: handleReactionUsers,
+                                    onPlayVideo: handlePlayVideo,
+                                    onLongPress: handleLongPress,
+                                    onForward: handleForward
                                 )
                                 .id(message.id)
                                 .transition(.asymmetric(
