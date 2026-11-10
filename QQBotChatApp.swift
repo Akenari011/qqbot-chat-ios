@@ -4,6 +4,8 @@ import Security
 import PhotosUI
 import Network
 import UIKit
+import AVKit
+import AVFoundation
 
 @main
 struct QQBotChatApp: App {
@@ -18,8 +20,12 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     var authorName: String
     var imageURL: String?
     var localImage: String?
+    var videoURL: String?
+    var videoFile: String?
+    var audioURL: String?
+    var audioFile: String?
 
-    init(id: String, text: String, timestamp: String, fromBot: Bool, authorName: String, imageURL: String? = nil, localImage: String? = nil) {
+    init(id: String, text: String, timestamp: String, fromBot: Bool, authorName: String, imageURL: String? = nil, localImage: String? = nil, videoURL: String? = nil, videoFile: String? = nil, audioURL: String? = nil, audioFile: String? = nil) {
         self.id = id
         self.text = text
         self.timestamp = timestamp
@@ -27,9 +33,21 @@ struct ChatMessage: Identifiable, Codable, Equatable {
         self.authorName = authorName
         self.imageURL = imageURL
         self.localImage = localImage
+        self.videoURL = videoURL
+        self.videoFile = videoFile
+        self.audioURL = audioURL
+        self.audioFile = audioFile
     }
 
     var isImage: Bool { imageURL != nil || localImage != nil }
+    var isVideo: Bool { videoURL != nil || videoFile != nil }
+    var isAudio: Bool { audioURL != nil || audioFile != nil }
+    var summary: String {
+        if isImage { return "[图片]" }
+        if isVideo { return "[视频]" }
+        if isAudio { return "[语音]" }
+        return text
+    }
     var date: Date { ISO8601DateFormatter().date(from: timestamp) ?? .now }
 }
 
@@ -79,6 +97,9 @@ final class ChatStore {
     var password = ""
     var activeConversationID: String?
     var sendingConversationID: String?
+    var appearance: String = UserDefaults.standard.string(forKey: "appearance") ?? "system" {
+        didSet { UserDefaults.standard.set(appearance, forKey: "appearance") }
+    }
 
     private var token = ""
     private var tokenExpires = Date.distantPast
@@ -317,18 +338,30 @@ final class ChatStore {
         let name = isGroup ? "群聊 " + String(target.suffix(6)) : (author["username"] as? String ?? "QQ 用户")
         let content = payload["content"] as? String ?? ""
         let attachments = payload["attachments"] as? [[String: Any]] ?? []
-        let remote = attachments.first?["url"] as? String
+        let attachment = attachments.first
+        let remote = attachment?["url"] as? String
+        let contentType = (attachment?["content_type"] as? String ?? "").lowercased()
+        let fileName = (attachment?["filename"] as? String ?? "").lowercased()
+        let isVideo = contentType.hasPrefix("video") || fileName.hasSuffix(".mp4") || fileName.hasSuffix(".mov")
+        let isAudio = contentType.hasPrefix("audio") || fileName.hasSuffix(".silk") || fileName.hasSuffix(".amr") || fileName.hasSuffix(".mp3")
         let timestamp = payload["timestamp"] as? String ?? ISO8601DateFormatter().string(from: .now)
-        let message = ChatMessage(id: id, text: content, timestamp: timestamp, fromBot: false, authorName: name, imageURL: remote)
+        let message = ChatMessage(
+            id: id, text: content, timestamp: timestamp, fromBot: false, authorName: name,
+            imageURL: (!isVideo && !isAudio) ? remote : nil,
+            videoURL: isVideo ? remote : nil,
+            audioURL: isAudio ? remote : nil
+        )
         append(message, target: target, scene: isGroup ? "group" : "c2c", name: name, markUnread: activeConversationID != target, replyID: id)
-        if let remote { downloadImage(remote, target: target, messageID: id) }
+        if let remote {
+            downloadMedia(remote, target: target, messageID: id, kind: isVideo ? "video" : (isAudio ? "audio" : "image"))
+        }
     }
 
     private func append(_ message: ChatMessage, target: String, scene: String, name: String, markUnread: Bool, replyID: String?) {
         if let index = conversations.firstIndex(where: { $0.id == target }) {
             if conversations[index].messages.contains(where: { $0.id == message.id }) { return }
             conversations[index].messages.append(message)
-            conversations[index].lastText = message.isImage ? "[图片]" : message.text
+            conversations[index].lastText = message.summary
             conversations[index].lastTimestamp = message.timestamp
             conversations[index].name = name
             if let replyID { conversations[index].replyID = replyID }
@@ -336,7 +369,7 @@ final class ChatStore {
             let updated = conversations.remove(at: index)
             conversations.insert(updated, at: 0)
         } else {
-            let conversation = Conversation(id: target, scene: scene, name: name, lastText: message.isImage ? "[图片]" : message.text, lastTimestamp: message.timestamp, unread: markUnread ? 1 : 0, messages: [message], replyID: replyID ?? "", replySeq: 0)
+            let conversation = Conversation(id: target, scene: scene, name: name, lastText: message.summary, lastTimestamp: message.timestamp, unread: markUnread ? 1 : 0, messages: [message], replyID: replyID ?? "", replySeq: 0)
             conversations.insert(conversation, at: 0)
         }
         saveConversations()
@@ -350,32 +383,49 @@ final class ChatStore {
 
     // MARK: - Images
 
-    private func downloadImage(_ urlString: String, target: String, messageID: String) {
+    private func downloadMedia(_ urlString: String, target: String, messageID: String, kind: String) {
         Task {
             guard let url = URL(string: urlString) else { return }
             var request = URLRequest(url: url)
             if !self.token.isEmpty { request.setValue("QQBot " + self.token, forHTTPHeaderField: "Authorization") }
-            guard let (data, _) = try? await URLSession.shared.data(for: request), !data.isEmpty,
-                  let name = self.saveImage(data) else { return }
-            self.attachLocalImage(name, target: target, messageID: messageID)
+            guard let (data, _) = try? await URLSession.shared.data(for: request), !data.isEmpty else { return }
+            let ext = kind == "video" ? "mp4" : (kind == "audio" ? "silk" : "jpg")
+            guard let name = self.saveMedia(data, ext: ext) else { return }
+            self.attachLocalMedia(name, kind: kind, target: target, messageID: messageID)
         }
     }
 
-    private func attachLocalImage(_ name: String, target: String, messageID: String) {
+    private func attachLocalMedia(_ name: String, kind: String, target: String, messageID: String) {
         guard let index = conversations.firstIndex(where: { $0.id == target }),
               let messageIndex = conversations[index].messages.firstIndex(where: { $0.id == messageID }) else { return }
-        conversations[index].messages[messageIndex].localImage = name
-        conversations[index].messages[messageIndex].imageURL = nil
+        switch kind {
+        case "video":
+            conversations[index].messages[messageIndex].videoFile = name
+            conversations[index].messages[messageIndex].videoURL = nil
+        case "audio":
+            conversations[index].messages[messageIndex].audioFile = name
+            conversations[index].messages[messageIndex].audioURL = nil
+        default:
+            conversations[index].messages[messageIndex].localImage = name
+            conversations[index].messages[messageIndex].imageURL = nil
+        }
         saveConversations()
     }
 
-    func saveImage(_ data: Data) -> String? {
-        let name = UUID().uuidString + ".jpg"
+    func saveMedia(_ data: Data, ext: String) -> String? {
+        let name = UUID().uuidString + "." + ext
         do {
             try FileManager.default.createDirectory(at: imagesURL, withIntermediateDirectories: true)
             try data.write(to: imagesURL.appendingPathComponent(name), options: .atomic)
             return name
         } catch { return nil }
+    }
+
+    func saveImage(_ data: Data) -> String? { saveMedia(data, ext: "jpg") }
+
+    func mediaURL(named name: String?) -> URL? {
+        guard let name else { return nil }
+        return imagesURL.appendingPathComponent(name)
     }
 
     func image(named name: String?) -> UIImage? {
@@ -388,18 +438,23 @@ final class ChatStore {
     func sendText(_ text: String, to id: String) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        await send(to: id, text: trimmed, imageFile: nil)
+        await send(to: id, text: trimmed, mediaFile: nil, mediaType: nil)
     }
 
     func sendImage(_ data: Data, to id: String) async {
         guard let image = UIImage(data: data) else { error = "无法读取所选图片。"; return }
         let resized = image.scaled(maxDimension: 1600)
-        guard let jpeg = resized.jpegData(compressionQuality: 0.82) else { error = "图片压缩失败。"; return }
-        guard let name = saveImage(jpeg) else { error = "图片保存失败。"; return }
-        await send(to: id, text: "", imageFile: name)
+        guard let jpeg = resized.jpegData(compressionQuality: 0.82), let name = saveMedia(jpeg, ext: "jpg") else { error = "图片处理失败。"; return }
+        await send(to: id, text: "", mediaFile: name, mediaType: "image")
     }
 
-    private func send(to id: String, text: String, imageFile: String?) async {
+    func sendVideo(_ data: Data, to id: String) async {
+        guard data.count <= 20 * 1024 * 1024 else { error = "视频不能超过 20MB，请先裁剪。"; return }
+        guard let name = saveMedia(data, ext: "mp4") else { error = "视频保存失败。"; return }
+        await send(to: id, text: "", mediaFile: name, mediaType: "video")
+    }
+
+    private func send(to id: String, text: String, mediaFile: String?, mediaType: String?) async {
         guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
         guard !conversations[index].replyID.isEmpty else { error = "请先从 QQ 给机器人发送一条消息，再回复。"; return }
         guard sendingConversationID == nil else { return }
@@ -407,15 +462,17 @@ final class ChatStore {
         defer { sendingConversationID = nil; error = nil }
         let conversation = conversations[index]
         var body: [String: Any] = ["msg_id": conversation.replyID, "msg_seq": conversation.replySeq + 1]
-        if let imageFile {
-            guard let data = try? Data(contentsOf: imagesURL.appendingPathComponent(imageFile)) else { error = "图片读取失败。"; return }
+        if let mediaFile, let mediaType {
+            guard let fileURL = mediaURL(named: mediaFile), let data = try? Data(contentsOf: fileURL) else { error = "媒体文件读取失败。"; return }
+            let type = mediaType == "video" ? 2 : 1
+            let ext = mediaType == "video" ? "mp4" : "jpg"
             do {
-                let info = try await uploadImage(data, target: id, scene: conversation.scene)
+                let info = try await uploadMedia(data, fileType: type, fileName: "media." + ext, target: id, scene: conversation.scene)
                 body["msg_type"] = 7
                 body["content"] = ""
                 body["media"] = ["file_info": info]
             } catch {
-                self.error = "图片上传失败，请确认图片小于 10MB 且机器人有富媒体权限。"
+                self.error = mediaType == "video" ? "视频上传失败，请确认小于 20MB 且机器人有富媒体权限。" : "图片上传失败，请确认小于 10MB 且机器人有富媒体权限。"
                 return
             }
         } else {
@@ -428,9 +485,14 @@ final class ChatStore {
             let result = try await api(path + encoded + "/messages", body: body)
             guard let messageID = result["id"] as? String else { throw URLError(.badServerResponse) }
             if let current = conversations.firstIndex(where: { $0.id == id }) {
-                let message = ChatMessage(id: messageID, text: text, timestamp: ISO8601DateFormatter().string(from: .now), fromBot: true, authorName: "QQ 机器人", localImage: imageFile)
+                let message = ChatMessage(
+                    id: messageID, text: text, timestamp: ISO8601DateFormatter().string(from: .now),
+                    fromBot: true, authorName: "QQ 机器人",
+                    localImage: mediaType == "image" ? mediaFile : nil,
+                    videoFile: mediaType == "video" ? mediaFile : nil
+                )
                 conversations[current].messages.append(message)
-                conversations[current].lastText = imageFile == nil ? text : "[图片]"
+                conversations[current].lastText = message.summary
                 conversations[current].lastTimestamp = message.timestamp
                 conversations[current].replySeq += 1
                 saveConversations()
@@ -440,13 +502,13 @@ final class ChatStore {
         }
     }
 
-    private func uploadImage(_ data: Data, target: String, scene: String) async throws -> String {
+    private func uploadMedia(_ data: Data, fileType: Int, fileName: String, target: String, scene: String) async throws -> String {
         let encoded = target.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? target
         let path = scene == "c2c" ? "/v2/users/" : "/v2/groups/"
         let result = try await api(path + encoded + "/files", body: [
-            "file_type": 1,
+            "file_type": fileType,
             "file_data": data.base64EncodedString(),
-            "file_name": "image.jpg",
+            "file_name": fileName,
             "srv_send_msg": false
         ])
         guard let info = result["file_info"] as? String, !info.isEmpty else { throw URLError(.badServerResponse) }
@@ -497,7 +559,7 @@ struct RootView: View {
                 LoginView(store: store)
             }
         }
-        .preferredColorScheme(.light)
+        .preferredColorScheme(store.appearance == "light" ? .light : (store.appearance == "dark" ? .dark : nil))
         .task { store.start() }
     }
 }
@@ -553,7 +615,18 @@ struct LoginView: View {
 struct ConversationListView: View {
     let store: ChatStore
     @State private var showSettings = false
+    @State private var query = ""
     private let blue = Color(red: 0.20, green: 0.55, blue: 0.88)
+
+    private var filtered: [Conversation] {
+        guard !query.trimmingCharacters(in: .whitespaces).isEmpty else { return store.conversations }
+        let needle = query.trimmingCharacters(in: .whitespaces)
+        return store.conversations.filter {
+            $0.name.localizedCaseInsensitiveContains(needle) ||
+            $0.lastText.localizedCaseInsensitiveContains(needle) ||
+            $0.messages.contains { $0.text.localizedCaseInsensitiveContains(needle) }
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -564,9 +637,11 @@ struct ConversationListView: View {
                     } description: {
                         Text("从 QQ 给机器人发送一条消息后，会话会出现在这里。")
                     }
+                } else if filtered.isEmpty {
+                    ContentUnavailableView.search(text: query)
                 } else {
                     List {
-                        ForEach(store.conversations) { conversation in
+                        ForEach(filtered) { conversation in
                             NavigationLink(value: conversation.id) {
                                 ConversationRow(conversation: conversation)
                             }
@@ -576,6 +651,7 @@ struct ConversationListView: View {
                     .listStyle(.plain)
                 }
             }
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索会话和消息")
             .navigationTitle("QQ 机器人")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -641,6 +717,7 @@ struct ChatView: View {
     let conversationID: String
     @State private var draft = ""
     @State private var pickerItem: PhotosPickerItem?
+    @State private var videoItem: PhotosPickerItem?
     private let blue = Color(red: 0.20, green: 0.55, blue: 0.88)
 
     private var conversation: Conversation? { store.conversation(conversationID) }
@@ -698,6 +775,15 @@ struct ChatView: View {
                 pickerItem = nil
             }
         }
+        .onChange(of: videoItem) { _, item in
+            guard let item else { return }
+            Task {
+                if let data = try? await item.loadTransferable(type: Data.self) {
+                    await store.sendVideo(data, to: conversationID)
+                }
+                videoItem = nil
+            }
+        }
     }
 
     private var composer: some View {
@@ -706,6 +792,10 @@ struct ChatView: View {
                 Image(systemName: "photo.on.rectangle").font(.system(size: 20)).foregroundStyle(blue)
             }
             .accessibilityLabel("发送图片")
+            PhotosPicker(selection: $videoItem, matching: .videos, photoLibrary: .shared()) {
+                Image(systemName: "video").font(.system(size: 20)).foregroundStyle(blue)
+            }
+            .accessibilityLabel("发送视频")
             TextField("消息", text: $draft, axis: .vertical).lineLimit(1...5)
                 .padding(.horizontal, 12).padding(.vertical, 9)
                 .background(Color(uiColor: .secondarySystemBackground), in: Capsule())
@@ -733,6 +823,8 @@ struct ChatView: View {
 struct MessageRow: View {
     let store: ChatStore
     let message: ChatMessage
+    @State private var audioPlayer: AVAudioPlayer?
+    @State private var playingAudio = false
     private let blue = Color(red: 0.20, green: 0.55, blue: 0.88)
 
     var body: some View {
@@ -757,10 +849,28 @@ struct MessageRow: View {
             Image(uiImage: image).resizable().scaledToFit()
                 .frame(maxWidth: 220, maxHeight: 280)
                 .clipShape(RoundedRectangle(cornerRadius: 14))
-        } else if message.imageURL != nil {
+        } else if let name = message.videoFile, let url = store.mediaURL(named: name) {
+            VideoPlayer(player: AVPlayer(url: url))
+                .frame(width: 240, height: 180)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+        } else if let name = message.audioFile, let url = store.mediaURL(named: name) {
+            Button { toggleAudio(url) } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: playingAudio ? "pause.circle.fill" : "play.circle.fill").font(.system(size: 22))
+                    Image(systemName: "waveform").font(.system(size: 16))
+                    Text(playingAudio ? "播放中" : "语音消息").font(.system(size: 14))
+                }
+                .foregroundStyle(message.fromBot ? Color.white : Color.primary)
+                .padding(.horizontal, 12).padding(.vertical, 9)
+                .background(message.fromBot ? blue : Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 16))
+            }
+        } else if message.imageURL != nil || message.videoURL != nil || message.audioURL != nil {
             ZStack {
                 RoundedRectangle(cornerRadius: 14).fill(Color(uiColor: .tertiarySystemBackground))
-                ProgressView()
+                VStack(spacing: 6) {
+                    ProgressView()
+                    Text(message.isVideo ? "视频" : (message.isAudio ? "语音" : "图片")).font(.system(size: 11)).foregroundStyle(.secondary)
+                }
             }
             .frame(width: 160, height: 160)
         } else {
@@ -769,6 +879,24 @@ struct MessageRow: View {
                 .foregroundStyle(message.fromBot ? Color.white : Color.primary)
                 .padding(.horizontal, 12).padding(.vertical, 9)
                 .background(message.fromBot ? blue : Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 16))
+        }
+    }
+
+    private func toggleAudio(_ url: URL) {
+        if playingAudio {
+            audioPlayer?.stop()
+            playingAudio = false
+            return
+        }
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback)
+            try AVAudioSession.sharedInstance().setActive(true)
+            audioPlayer = try AVAudioPlayer(contentsOf: url)
+            audioPlayer?.play()
+            playingAudio = true
+        } catch {
+            playingAudio = false
+            store.error = "该语音格式暂不支持播放（QQ 可能返回 silk 编码）。"
         }
     }
 }
@@ -785,6 +913,14 @@ struct SettingsView: View {
                 Section("账号") {
                     LabeledContent("AppID", value: store.username.isEmpty ? "未登录" : store.username)
                     LabeledContent("连接状态", value: store.status)
+                }
+                Section("外观") {
+                    Picker("主题", selection: Binding(get: { store.appearance }, set: { store.appearance = $0 })) {
+                        Text("跟随系统").tag("system")
+                        Text("浅色").tag("light")
+                        Text("深色").tag("dark")
+                    }
+                    .pickerStyle(.segmented)
                 }
                 Section("数据") {
                     Button("清空全部聊天记录", role: .destructive) { confirmClear = true }
