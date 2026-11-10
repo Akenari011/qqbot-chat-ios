@@ -2278,6 +2278,11 @@ struct MessageRow: View {
             if let name = message.videoFile, let url = store.mediaURL(named: name) {
                 Button { UISaveVideoAtPathToSavedPhotosAlbum(url.path, nil, nil, nil); store.error = "视频已保存到相册。" } label: { Label("保存视频", systemImage: "square.and.arrow.down") }
             }
+            if message.fromBot && message.status != "failed" {
+                Button {
+                    Task { await store.recallMessage(conversationID: conversationID, messageID: message.id) }
+                } label: { Label("撤回（2 分钟内）", systemImage: "arrow.uturn.backward") }
+            }
             if store.conversation(conversationID)?.scene == "channel" {
                 Menu("频道操作") {
                     if message.fromBot {
