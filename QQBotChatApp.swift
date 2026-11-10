@@ -1908,6 +1908,13 @@ struct ChatView: View {
                     Color.clear.frame(height: 1).id("chatBottom")
                 }
                 .background(chatBackground)
+                .scrollDismissesKeyboard(.interactively)
+                .simultaneousGesture(TapGesture().onEnded {
+                    UIApplication.shared.sendAction(
+                        #selector(UIResponder.resignFirstResponder),
+                        to: nil, from: nil, for: nil
+                    )
+                })
                 .onScrollGeometryChange(for: Bool.self) { geometry in
                     geometry.contentOffset.y + geometry.containerSize.height < geometry.contentSize.height - 120
                 } action: { _, below in
