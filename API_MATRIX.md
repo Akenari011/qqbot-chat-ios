@@ -14,7 +14,7 @@
 | 频道富媒体上传 | 已接入 | `/channels/{id}/files` |
 | recall_message（频道） | 已接入 | 长按频道消息撤回 |
 | post_keyboard_message | 待接入 | 发送带按钮的频道消息 |
-| patch_guild_message | 待接入 | 编辑频道消息 |
+| patch_guild_message | 已接入 | 长按自己发送的频道消息可编辑 |
 | get_message（频道） | 待接入 | 拉取单条频道消息 |
 | create_dms / post_dms | 不适用 | 私信频道会话，需 guild 场景 |
 | on_interaction_result | 待接入 | 按钮点击结果回执 |
@@ -34,7 +34,8 @@
 | channel user/role permissions | 不适用 | 权限覆盖 |
 | create_announce / delete_announce | 待接入 | 频道公告 |
 | get_permissions / post_permission_demand | 不适用 | API 权限申请 |
-| get_schedules / create/update/delete_schedule | 待接入 | 频道日程 |
+| get_schedules | 已接入 | 频道聊天页日历按钮查看日程 |
+| create/update/delete_schedule | 不适用 | 日程管理后台能力 |
 | get_threads / post_thread / delete_thread | 不适用 | 论坛频道 |
 | put_reaction / delete_reaction / get_reaction_users | 部分接入 | 长按频道消息可点赞回应；删除与用户列表未做 |
 | put_pin / delete_pin / get_pins | 部分接入 | 长按频道消息可置顶；取消与列表未做 |
