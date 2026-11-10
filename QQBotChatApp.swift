@@ -26,8 +26,9 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     var audioFile: String?
     var quotedText: String?
     var buttons: [String]?
+    var status: String?
 
-    init(id: String, text: String, timestamp: String, fromBot: Bool, authorName: String, imageURL: String? = nil, localImage: String? = nil, videoURL: String? = nil, videoFile: String? = nil, audioURL: String? = nil, audioFile: String? = nil, quotedText: String? = nil, buttons: [String]? = nil) {
+    init(id: String, text: String, timestamp: String, fromBot: Bool, authorName: String, imageURL: String? = nil, localImage: String? = nil, videoURL: String? = nil, videoFile: String? = nil, audioURL: String? = nil, audioFile: String? = nil, quotedText: String? = nil, buttons: [String]? = nil, status: String? = nil) {
         self.id = id
         self.text = text
         self.timestamp = timestamp
@@ -41,6 +42,7 @@ struct ChatMessage: Identifiable, Codable, Equatable {
         self.audioFile = audioFile
         self.quotedText = quotedText
         self.buttons = buttons
+        self.status = status
     }
 
     var isImage: Bool { imageURL != nil || localImage != nil }
@@ -102,6 +104,7 @@ final class ChatStore {
     var password = ""
     var activeConversationID: String?
     var sendingConversationID: String?
+    var drafts: [String: String] = UserDefaults.standard.dictionary(forKey: "drafts") as? [String: String] ?? [:]
     var appearance: String = UserDefaults.standard.string(forKey: "appearance") ?? "system" {
         didSet { UserDefaults.standard.set(appearance, forKey: "appearance") }
     }
@@ -504,8 +507,21 @@ final class ChatStore {
         guard !conversations[index].replyID.isEmpty else { error = "请先从 QQ 给机器人发送一条消息，再回复。"; return }
         guard sendingConversationID == nil else { return }
         sendingConversationID = id
-        defer { sendingConversationID = nil; error = nil }
+        defer { sendingConversationID = nil }
         let conversation = conversations[index]
+        let tempID = UUID().uuidString
+        let pending = ChatMessage(
+            id: tempID, text: text, timestamp: ISO8601DateFormatter().string(from: .now),
+            fromBot: true, authorName: "QQ 机器人",
+            localImage: mediaType == "image" ? mediaFile : nil,
+            videoFile: mediaType == "video" ? mediaFile : nil,
+            audioFile: mediaType == "audio" ? mediaFile : nil,
+            quotedText: quote?.summary, status: "sending"
+        )
+        conversations[index].messages.append(pending)
+        conversations[index].lastText = pending.summary
+        conversations[index].lastTimestamp = pending.timestamp
+        saveConversations()
         var body: [String: Any] = ["msg_id": conversation.replyID, "msg_seq": conversation.replySeq + 1]
         if let quote { body["message_reference"] = ["message_id": quote.id] }
         if let mediaFile, let mediaType {
@@ -528,6 +544,11 @@ final class ChatStore {
                 case "audio": self.error = "语音上传失败，QQ 语音消息可能只接受 silk 编码。"
                 default: self.error = "图片上传失败，请确认小于 10MB 且机器人有富媒体权限。"
                 }
+                if let current = conversations.firstIndex(where: { $0.id == id }),
+                   let mi = conversations[current].messages.firstIndex(where: { $0.id == tempID }) {
+                    conversations[current].messages[mi].status = "failed"
+                    saveConversations()
+                }
                 return
             }
         } else {
@@ -539,22 +560,23 @@ final class ChatStore {
             let path = conversation.scene == "c2c" ? "/v2/users/" : "/v2/groups/"
             let result = try await api(path + encoded + "/messages", body: body)
             guard let messageID = result["id"] as? String else { throw URLError(.badServerResponse) }
-            if let current = conversations.firstIndex(where: { $0.id == id }) {
-                let message = ChatMessage(
-                    id: messageID, text: text, timestamp: ISO8601DateFormatter().string(from: .now),
-                    fromBot: true, authorName: "QQ 机器人",
-                    localImage: mediaType == "image" ? mediaFile : nil,
-                    videoFile: mediaType == "video" ? mediaFile : nil,
-                    audioFile: mediaType == "audio" ? mediaFile : nil,
-                    quotedText: quote?.summary
+            if let current = conversations.firstIndex(where: { $0.id == id }),
+               let mi = conversations[current].messages.firstIndex(where: { $0.id == tempID }) {
+                let old = conversations[current].messages[mi]
+                conversations[current].messages[mi] = ChatMessage(
+                    id: messageID, text: old.text, timestamp: old.timestamp, fromBot: true,
+                    authorName: old.authorName, localImage: old.localImage, videoFile: old.videoFile,
+                    audioFile: old.audioFile, quotedText: old.quotedText, buttons: old.buttons, status: "sent"
                 )
-                conversations[current].messages.append(message)
-                conversations[current].lastText = message.summary
-                conversations[current].lastTimestamp = message.timestamp
                 conversations[current].replySeq += 1
                 saveConversations()
             }
         } catch {
+            if let current = conversations.firstIndex(where: { $0.id == id }),
+               let mi = conversations[current].messages.firstIndex(where: { $0.id == tempID }) {
+                conversations[current].messages[mi].status = "failed"
+                saveConversations()
+            }
             self.error = "发送失败，请检查回复时限、机器人权限和连接。"
         }
     }
@@ -857,9 +879,12 @@ struct ChatView: View {
         .onAppear {
             store.activeConversationID = conversationID
             store.markRead(conversationID)
+            draft = store.drafts[conversationID] ?? ""
         }
         .onDisappear {
             store.activeConversationID = nil
+            store.drafts[conversationID] = draft
+            UserDefaults.standard.set(store.drafts, forKey: "drafts")
             if recording { recorder?.stop(); recorder = nil; recording = false }
         }
         .onChange(of: pickerItem) { _, item in
@@ -962,6 +987,8 @@ struct ChatView: View {
                     let quote = quoting
                     draft = ""
                     quoting = nil
+                    store.drafts[conversationID] = ""
+                    UserDefaults.standard.set(store.drafts, forKey: "drafts")
                     Task { await store.sendText(text, to: conversationID, quote: quote) }
                 } label: {
                     if store.sendingConversationID == conversationID {
@@ -1033,8 +1060,11 @@ struct MessageRow: View {
                     .frame(maxWidth: 220)
                 }
                 if message.isImage || message.isVideo || message.isAudio {
-                    Text(message.date, format: .dateTime.hour().minute())
-                        .font(.system(size: 10)).foregroundStyle(.tertiary).padding(.horizontal, 4)
+                    HStack(spacing: 3) {
+                        Text(message.date, format: .dateTime.hour().minute())
+                            .font(.system(size: 10)).foregroundStyle(.tertiary)
+                        statusIcon
+                    }.padding(.horizontal, 4)
                 }
             }
             if !message.fromBot { Spacer(minLength: 48) }
@@ -1105,12 +1135,24 @@ struct MessageRow: View {
                     .font(.system(size: 16))
                     .foregroundStyle(message.fromBot ? Color.white : Color.primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                Text(message.date, format: .dateTime.hour().minute())
-                    .font(.system(size: 10))
-                    .foregroundStyle(message.fromBot ? Color.white.opacity(0.75) : Color.secondary)
+                HStack(spacing: 3) {
+                    Text(message.date, format: .dateTime.hour().minute())
+                        .font(.system(size: 10))
+                        .foregroundStyle(message.fromBot ? Color.white.opacity(0.75) : Color.secondary)
+                    statusIcon
+                }
             }
             .padding(.horizontal, 12).padding(.vertical, 9)
             .background(message.fromBot ? blue : Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 16))
+        }
+    }
+
+    @ViewBuilder
+    private var statusIcon: some View {
+        if message.fromBot, let status = message.status {
+            Image(systemName: status == "sending" ? "clock" : (status == "failed" ? "exclamationmark.circle" : "checkmark"))
+                .font(.system(size: 9))
+                .foregroundStyle(status == "failed" ? Color.red : (message.fromBot ? Color.white.opacity(0.8) : Color.secondary))
         }
     }
 
