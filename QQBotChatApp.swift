@@ -1811,10 +1811,16 @@ struct ChatView: View {
                                         .font(.system(size: 11)).foregroundStyle(.secondary)
                                         .padding(.vertical, 6)
                                 }
+                                let prevMessage = index > 0 ? visible[index - 1] : nil
+                                let nextMessage = index < visible.count - 1 ? visible[index + 1] : nil
+                                let mergedTop = prevMessage.map { $0.fromBot == message.fromBot && $0.authorName == message.authorName && message.date.timeIntervalSince($0.date) < 300 } ?? false
+                                let mergedBottom = nextMessage.map { $0.fromBot == message.fromBot && $0.authorName == message.authorName && $0.date.timeIntervalSince(message.date) < 300 } ?? false
                                 MessageRow(
                                     store: store,
                                     conversationID: conversationID,
                                     message: message,
+                                    mergedTop: mergedTop,
+                                    mergedBottom: mergedBottom,
                                     onQuote: { quoting = $0 },
                                     onJump: { target in withAnimation { proxy.scrollTo(target, anchor: .center) } },
                                     onPreview: { image in previewImage = image; showPreview = true },
@@ -2081,6 +2087,8 @@ struct MessageRow: View {
     let onPlayVideo: (URL) -> Void
     let onLongPress: (ChatMessage) -> Void
     let onForward: (ChatMessage) -> Void
+    var mergedTop = false
+    var mergedBottom = false
     @State private var audioPlayer: AVAudioPlayer?
     @State private var playingAudio = false
     @State private var loadedImage: UIImage?
@@ -2258,7 +2266,15 @@ struct MessageRow: View {
                 }
                 .foregroundStyle(message.fromBot ? Color.white : Color.primary)
                 .padding(.horizontal, 11).padding(.vertical, 6)
-                .background(message.fromBot ? blue : Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 16))
+                .background(
+                    message.fromBot ? blue : Color(uiColor: .systemBackground),
+                    in: UnevenRoundedRectangle(
+                        topLeadingRadius: mergedTop ? 8 : 16,
+                        bottomLeadingRadius: mergedBottom ? 8 : 16,
+                        bottomTrailingRadius: mergedBottom ? 8 : 16,
+                        topTrailingRadius: mergedTop ? 8 : 16
+                    )
+                )
             }
         } else if let name = message.fileLocal, let url = store.mediaURL(named: name) {
             ShareLink(item: url) {
