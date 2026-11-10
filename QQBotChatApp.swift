@@ -28,10 +28,12 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     var fileLocal: String?
     var fileName: String?
     var quotedText: String?
+    var quotedID: String?
+    var duration: Double?
     var buttons: [String]?
     var status: String?
 
-    init(id: String, text: String, timestamp: String, fromBot: Bool, authorName: String, imageURL: String? = nil, localImage: String? = nil, videoURL: String? = nil, videoFile: String? = nil, audioURL: String? = nil, audioFile: String? = nil, fileLocal: String? = nil, fileName: String? = nil, quotedText: String? = nil, buttons: [String]? = nil, status: String? = nil) {
+    init(id: String, text: String, timestamp: String, fromBot: Bool, authorName: String, imageURL: String? = nil, localImage: String? = nil, videoURL: String? = nil, videoFile: String? = nil, audioURL: String? = nil, audioFile: String? = nil, fileLocal: String? = nil, fileName: String? = nil, quotedText: String? = nil, quotedID: String? = nil, duration: Double? = nil, buttons: [String]? = nil, status: String? = nil) {
         self.id = id
         self.text = text
         self.timestamp = timestamp
@@ -46,6 +48,8 @@ struct ChatMessage: Identifiable, Codable, Equatable {
         self.fileLocal = fileLocal
         self.fileName = fileName
         self.quotedText = quotedText
+        self.quotedID = quotedID
+        self.duration = duration
         self.buttons = buttons
         self.status = status
     }
@@ -650,6 +654,8 @@ final class ChatStore {
         let isVideo = contentType.hasPrefix("video") || fileName.hasSuffix(".mp4") || fileName.hasSuffix(".mov")
         let isAudio = contentType.hasPrefix("audio") || fileName.hasSuffix(".silk") || fileName.hasSuffix(".amr") || fileName.hasSuffix(".mp3")
         let timestamp = payload["timestamp"] as? String ?? ISO8601DateFormatter().string(from: .now)
+        let reference = payload["message_reference"] as? [String: Any]
+        let quotedID = reference?["message_id"] as? String
         let keyboard = payload["keyboard"] as? [String: Any]
         let keyboardContent = keyboard?["content"] as? [String: Any]
         let rows = keyboardContent?["rows"] as? [[String: Any]] ?? []
@@ -666,6 +672,7 @@ final class ChatStore {
             imageURL: (!isVideo && !isAudio) ? remote : nil,
             videoURL: isVideo ? remote : nil,
             audioURL: isAudio ? remote : nil,
+            quotedID: quotedID,
             buttons: buttonLabels.isEmpty ? nil : buttonLabels
         )
         append(message, target: target, scene: isChannel ? "channel" : (isGroup ? "group" : "c2c"), name: conversationName, markUnread: activeConversationID != target, replyID: id)
@@ -817,10 +824,10 @@ final class ChatStore {
         await send(to: id, text: "", mediaFile: name, mediaType: "video", quote: quote)
     }
 
-    func sendAudio(_ data: Data, to id: String, quote: ChatMessage? = nil) async {
+    func sendAudio(_ data: Data, to id: String, quote: ChatMessage? = nil, duration: Double? = nil) async {
         guard data.count <= 10 * 1024 * 1024 else { error = "语音文件过大。"; return }
         guard let name = saveMedia(data, ext: "m4a") else { error = "语音保存失败。"; return }
-        await send(to: id, text: "", mediaFile: name, mediaType: "audio", quote: quote)
+        await send(to: id, text: "", mediaFile: name, mediaType: "audio", quote: quote, duration: duration)
     }
 
     func sendFile(_ data: Data, name: String, to id: String) async {
@@ -830,7 +837,7 @@ final class ChatStore {
         await send(to: id, text: "", mediaFile: saved, mediaType: "file", quote: nil, displayName: name)
     }
 
-    private func send(to id: String, text: String, mediaFile: String?, mediaType: String?, quote: ChatMessage?, displayName: String? = nil) async {
+    private func send(to id: String, text: String, mediaFile: String?, mediaType: String?, quote: ChatMessage?, displayName: String? = nil, duration: Double? = nil) async {
         guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
         guard !conversations[index].replyID.isEmpty else { error = "请先从 QQ 给机器人发送一条消息，再回复。"; return }
         guard sendingConversationID == nil else { return }
@@ -846,7 +853,7 @@ final class ChatStore {
             audioFile: mediaType == "audio" ? mediaFile : nil,
             fileLocal: mediaType == "file" ? mediaFile : nil,
             fileName: mediaType == "file" ? displayName : nil,
-            quotedText: quote?.summary, status: "sending"
+            quotedText: quote?.summary, quotedID: quote?.id, duration: duration, status: "sending"
         )
         conversations[index].messages.append(pending)
         conversations[index].lastText = pending.summary
@@ -909,7 +916,8 @@ final class ChatStore {
                     id: messageID, text: old.text, timestamp: old.timestamp, fromBot: true,
                     authorName: old.authorName, localImage: old.localImage, videoFile: old.videoFile,
                     audioFile: old.audioFile, fileLocal: old.fileLocal, fileName: old.fileName,
-                    quotedText: old.quotedText, buttons: old.buttons, status: "sent"
+                    quotedText: old.quotedText, quotedID: old.quotedID, duration: old.duration,
+                    buttons: old.buttons, status: "sent"
                 )
                 conversations[current].replySeq += 1
                 saveConversations()
@@ -1189,6 +1197,7 @@ struct ChatView: View {
     @State private var quoting: ChatMessage?
     @State private var recorder: AVAudioRecorder?
     @State private var recording = false
+    @State private var recordingStarted: Date?
     @State private var showEmoji = false
     @State private var showFileImporter = false
     @State private var showSchedules = false
@@ -1218,7 +1227,7 @@ struct ChatView: View {
                                         .font(.system(size: 11)).foregroundStyle(.secondary)
                                         .padding(.vertical, 6)
                                 }
-                                MessageRow(store: store, conversationID: conversationID, message: message, onQuote: { quoting = $0 }).id(message.id)
+                                MessageRow(store: store, conversationID: conversationID, message: message, onQuote: { quoting = $0 }, onJump: { target in withAnimation { proxy.scrollTo(target, anchor: .center) } }).id(message.id)
                             }
                         }
                     }
@@ -1339,6 +1348,7 @@ struct ChatView: View {
             r.record()
             recorder = r
             recording = true
+            recordingStarted = Date()
         } catch {
             store.error = "无法开始录音，请检查麦克风权限。"
         }
@@ -1350,8 +1360,10 @@ struct ChatView: View {
         recorder = nil
         recording = false
         let url = r.url
+        let duration = recordingStarted.map { Date().timeIntervalSince($0) }
+        recordingStarted = nil
         guard let data = try? Data(contentsOf: url), !data.isEmpty else { return }
-        Task { await store.sendAudio(data, to: conversationID) }
+        Task { await store.sendAudio(data, to: conversationID, duration: duration) }
     }
 
     private var composer: some View {
@@ -1441,6 +1453,7 @@ struct MessageRow: View {
     let conversationID: String
     let message: ChatMessage
     let onQuote: (ChatMessage) -> Void
+    let onJump: (String) -> Void
     @State private var audioPlayer: AVAudioPlayer?
     @State private var playingAudio = false
     @State private var previewImage: UIImage?
@@ -1486,13 +1499,14 @@ struct MessageRow: View {
                 if !message.fromBot {
                     Text(message.authorName).font(.system(size: 11)).foregroundStyle(.secondary).padding(.horizontal, 4)
                 }
-                if let quoted = message.quotedText {
+                if message.quotedText != nil || message.quotedID != nil {
                     HStack(spacing: 6) {
                         RoundedRectangle(cornerRadius: 1.5).fill(blue.opacity(0.7)).frame(width: 3)
-                        Text(quoted).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(2)
+                        Text(message.quotedText ?? "引用消息").font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(2)
                     }
                     .padding(.horizontal, 8).padding(.vertical, 5)
                     .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 8))
+                    .onTapGesture { if let id = message.quotedID { onJump(id) } }
                 }
                 content
                 if let buttons = message.buttons, !buttons.isEmpty {
@@ -1529,6 +1543,12 @@ struct MessageRow: View {
                     UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
                     store.error = "图片已保存到相册。"
                 } label: { Label("保存图片", systemImage: "square.and.arrow.down") }
+            }
+            if let name = message.videoFile, let url = store.mediaURL(named: name) {
+                Button {
+                    UISaveVideoAtPathToSavedPhotosAlbum(url.path, nil, nil, nil)
+                    store.error = "视频已保存到相册。"
+                } label: { Label("保存视频", systemImage: "square.and.arrow.down") }
             }
             if store.conversation(conversationID)?.scene == "channel" {
                 if message.fromBot {
@@ -1597,7 +1617,7 @@ struct MessageRow: View {
                 HStack(spacing: 8) {
                     Image(systemName: playingAudio ? "pause.circle.fill" : "play.circle.fill").font(.system(size: 22))
                     Image(systemName: "waveform").font(.system(size: 16))
-                    Text(playingAudio ? "播放中" : "语音消息").font(.system(size: 14))
+                    Text(playingAudio ? "播放中" : (message.duration.map { "语音 (Int($0))″" } ?? "语音消息")).font(.system(size: 14))
                 }
                 .foregroundStyle(message.fromBot ? Color.white : Color.primary)
                 .padding(.horizontal, 12).padding(.vertical, 9)
