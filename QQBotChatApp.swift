@@ -1578,6 +1578,7 @@ struct ChatView: View {
             mergedTop: mergedTop,
             mergedBottom: mergedBottom
         )
+        .padding(.top, mergedTop ? 0 : 3)
         .id(message.id)
         .transition(.asymmetric(
             insertion: .move(edge: .bottom).combined(with: .opacity),
@@ -1852,7 +1853,7 @@ struct ChatView: View {
     private var messageList: some View {
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(spacing: 3) {
+                    LazyVStack(spacing: 0) {
                         if let conversation {
                             if conversation.messages.count > renderLimit {
                                 Button("加载更早消息") { renderLimit += 100 }
@@ -2102,7 +2103,10 @@ struct ImagePreview: View {
 }
 
 func isSameMessageGroup(_ a: ChatMessage, _ b: ChatMessage) -> Bool {
-    a.fromBot == b.fromBot && a.authorName == b.authorName && abs(a.date.timeIntervalSince(b.date)) < 300
+    a.fromBot == b.fromBot
+        && a.authorName == b.authorName
+        && Calendar.current.isDate(a.date, inSameDayAs: b.date)
+        && abs(a.date.timeIntervalSince(b.date)) < 300
 }
 
 struct MessageRow: View {
