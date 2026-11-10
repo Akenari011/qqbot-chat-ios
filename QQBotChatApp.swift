@@ -31,10 +31,11 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     var quotedID: String?
     var duration: Double?
     var authorID: String?
+    var authorAvatarURL: String? = nil
     var buttons: [String]?
     var status: String?
 
-    init(id: String, text: String, timestamp: String, fromBot: Bool, authorName: String, imageURL: String? = nil, localImage: String? = nil, videoURL: String? = nil, videoFile: String? = nil, audioURL: String? = nil, audioFile: String? = nil, fileLocal: String? = nil, fileName: String? = nil, quotedText: String? = nil, quotedID: String? = nil, duration: Double? = nil, authorID: String? = nil, buttons: [String]? = nil, status: String? = nil) {
+    init(id: String, text: String, timestamp: String, fromBot: Bool, authorName: String, imageURL: String? = nil, localImage: String? = nil, videoURL: String? = nil, videoFile: String? = nil, audioURL: String? = nil, audioFile: String? = nil, fileLocal: String? = nil, fileName: String? = nil, quotedText: String? = nil, quotedID: String? = nil, duration: Double? = nil, authorID: String? = nil, authorAvatarURL: String? = nil, buttons: [String]? = nil, status: String? = nil) {
         self.id = id
         self.text = text
         self.timestamp = timestamp
@@ -52,6 +53,7 @@ struct ChatMessage: Identifiable, Codable, Equatable {
         self.quotedID = quotedID
         self.duration = duration
         self.authorID = authorID
+        self.authorAvatarURL = authorAvatarURL
         self.buttons = buttons
         self.status = status
     }
@@ -88,6 +90,9 @@ struct Conversation: Identifiable, Codable {
     var pinned: Bool?
     var archived: Bool?
     var muted: Bool?
+    var remark: String? = nil
+    var avatarPath: String? = nil
+    var autoAvatarURL: String? = nil
     var lastDate: Date { ISO8601DateFormatter().date(from: lastTimestamp) ?? .now }
     var isGroup: Bool { scene == "group" }
     var isChannel: Bool { scene == "channel" }
@@ -885,6 +890,7 @@ final class ChatStore {
             audioURL: isAudio ? remote : nil,
             quotedID: quotedID,
             authorID: memberID.isEmpty ? nil : memberID,
+            authorAvatarURL: author["avatar"] as? String,
             buttons: buttonLabels.isEmpty ? nil : buttonLabels
         )
         append(message, target: target, scene: isChannel ? "channel" : (isGroup ? "group" : "c2c"), name: conversationName, markUnread: activeConversationID != target, replyID: id)
@@ -923,7 +929,10 @@ final class ChatStore {
             conversations[index].messages.append(message)
             conversations[index].lastText = message.summary
             conversations[index].lastTimestamp = message.timestamp
-            conversations[index].name = name
+            let currentName = conversations[index].name
+            if currentName.hasPrefix("群聊 ") || currentName.hasPrefix("频道 ") || currentName == "QQ 用户" {
+                conversations[index].name = name
+            }
             if let replyID { conversations[index].replyID = replyID }
             if markUnread { conversations[index].unread += 1 }
             let updated = conversations.remove(at: index)
@@ -931,9 +940,17 @@ final class ChatStore {
         } else {
             let conversation = Conversation(id: target, scene: scene, name: name, lastText: message.summary, lastTimestamp: message.timestamp, unread: markUnread ? 1 : 0, messages: [message], replyID: replyID ?? "", replySeq: 0, pinned: nil, archived: nil, muted: nil)
             conversations.append(conversation)
+            if scene == "group" {
+                Task { await fetchGroupInfoIfNeeded(target) }
+            }
         }
         sortConversations()
         saveConversations()
+        if let avatarURL = message.authorAvatarURL,
+           let idx = conversations.firstIndex(where: { $0.id == target }),
+           conversations[idx].avatarPath == nil {
+            cacheAuthorAvatar(avatarURL, conversationID: target)
+        }
     }
 
     private func sortConversations() {
@@ -1013,6 +1030,70 @@ final class ChatStore {
             conversations[index].messages[messageIndex].imageURL = nil
         }
         saveConversations()
+    }
+
+    func displayName(_ conversation: Conversation) -> String {
+        let remark = conversation.remark?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return remark.isEmpty ? conversation.name : remark
+    }
+
+    func setRemark(_ id: String, _ text: String) {
+        guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
+        conversations[index].remark = text
+        saveConversations()
+        log("设置备注 " + String(id.suffix(6)))
+    }
+
+    func setConversationAvatar(_ id: String, data: Data) {
+        guard let image = UIImage(data: data),
+              let jpeg = image.scaled(maxDimension: 400).jpegData(compressionQuality: 0.85),
+              let name = saveMedia(jpeg, ext: "jpg") else { return }
+        guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
+        conversations[index].avatarPath = name
+        saveConversations()
+        log("设置会话头像 " + String(id.suffix(6)))
+    }
+
+    func clearConversationAvatar(_ id: String) {
+        guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
+        conversations[index].avatarPath = nil
+        saveConversations()
+    }
+
+    func fetchGroupInfoIfNeeded(_ id: String) async {
+        guard let index = conversations.firstIndex(where: { $0.id == id }),
+              conversations[index].scene == "group",
+              conversations[index].remark?.isEmpty ?? true else { return }
+        guard conversations[index].name.hasPrefix("群聊 ") else { return }
+        let encoded = id.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? id
+        do {
+            let result = try await apiAny("/v2/groups/" + encoded + "/info")
+            guard let dict = result as? [String: Any],
+                  let name = dict["group_name"] as? String, !name.isEmpty,
+                  let current = conversations.firstIndex(where: { $0.id == id }) else { return }
+            conversations[current].name = name
+            if let avatar = dict["group_avatar"] as? String ?? dict["avatar"] as? String {
+                conversations[current].autoAvatarURL = avatar
+            }
+            saveConversations()
+            log("群名已获取 " + name)
+        } catch {
+            log("群信息获取失败，继续使用默认群名")
+        }
+    }
+
+    func cacheAuthorAvatar(_ urlString: String, conversationID: String) {
+        guard let url = URL(string: urlString) else { return }
+        Task {
+            guard let (data, _) = try? await URLSession.shared.data(for: URLRequest(url: url)),
+                  let image = UIImage(data: data),
+                  let jpeg = image.scaled(maxDimension: 200).jpegData(compressionQuality: 0.85),
+                  let name = saveMedia(jpeg, ext: "jpg"),
+                  let index = conversations.firstIndex(where: { $0.id == conversationID }) else { return }
+            conversations[index].autoAvatarURL = urlString
+            conversations[index].avatarPath = name
+            saveConversations()
+        }
     }
 
     func setBackgroundImage(_ data: Data) {
@@ -1369,6 +1450,7 @@ struct ConversationListView: View {
         guard !query.trimmingCharacters(in: .whitespaces).isEmpty else { return base }
         let needle = query.trimmingCharacters(in: .whitespaces)
         return base.filter {
+            store.displayName($0).localizedCaseInsensitiveContains(needle) ||
             $0.name.localizedCaseInsensitiveContains(needle) ||
             $0.lastText.localizedCaseInsensitiveContains(needle) ||
             $0.messages.contains { $0.text.localizedCaseInsensitiveContains(needle) }
@@ -1390,7 +1472,7 @@ struct ConversationListView: View {
                     List {
                         ForEach(filtered) { conversation in
                             NavigationLink(value: conversation.id) {
-                                ConversationRow(conversation: conversation)
+                                ConversationRow(conversation: conversation, store: store)
                             }
                             .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -1452,6 +1534,7 @@ struct ConversationListView: View {
 
 struct ConversationRow: View {
     let conversation: Conversation
+    let store: ChatStore
     private let blue = Color(red: 0.20, green: 0.55, blue: 0.88)
 
     private var avatarColors: [Color] {
@@ -1470,13 +1553,20 @@ struct ConversationRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: iconName)
-                .font(.system(size: 26)).foregroundStyle(.white)
-                .frame(width: 60, height: 60)
-                .background(LinearGradient(colors: avatarColors, startPoint: .topLeading, endPoint: .bottomTrailing), in: Circle())
+            Group {
+                if let image = store.image(named: conversation.avatarPath) {
+                    Image(uiImage: image).resizable().scaledToFill()
+                } else {
+                    Image(systemName: iconName)
+                        .font(.system(size: 26)).foregroundStyle(.white)
+                        .background(LinearGradient(colors: avatarColors, startPoint: .topLeading, endPoint: .bottomTrailing))
+                }
+            }
+            .frame(width: 60, height: 60)
+            .clipShape(Circle())
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 4) {
-                    Text(conversation.name)
+                    Text(store.displayName(conversation))
                         .font(.system(size: 16, weight: .semibold)).lineLimit(1)
                     if conversation.pinned == true {
                         Image(systemName: "pin.fill").font(.system(size: 11)).foregroundStyle(.secondary)
@@ -1530,6 +1620,9 @@ struct ChatView: View {
     @State private var menuMessage: ChatMessage?
     @State private var forwardMessage: ChatMessage?
     @State private var showForwardPicker = false
+    @State private var showProfileEditor = false
+    @State private var remarkDraft = ""
+    @State private var avatarPickerItem: PhotosPickerItem?
     @State private var scrollTick = 0
     @State private var renderLimit = 100
     @State private var showScrollButton = false
@@ -1649,20 +1742,28 @@ struct ChatView: View {
             messageList
             composer
         }
-        .navigationTitle(conversation?.name ?? "聊天")
+        .navigationTitle(conversation.map { store.displayName($0) } ?? "聊天")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .tabBar)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 HStack(spacing: 8) {
-                    ZStack {
-                        Circle().fill(blue.gradient)
-                        Text(String((conversation?.name ?? "聊").prefix(1)))
-                            .font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+                    Group {
+                        if let conv = conversation, let image = store.image(named: conv.avatarPath) {
+                            Image(uiImage: image).resizable().scaledToFill()
+                        } else {
+                            ZStack {
+                                Circle().fill(blue.gradient)
+                                Text(String((conversation.map { store.displayName($0) } ?? "聊").prefix(1)))
+                                    .font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+                            }
+                        }
                     }
                     .frame(width: 30, height: 30)
+                    .clipShape(Circle())
                     VStack(alignment: .leading, spacing: 0) {
-                        Text(conversation?.name ?? "聊天").font(.system(size: 15, weight: .semibold)).lineLimit(1)
+                        Text(conversation.map { store.displayName($0) } ?? "聊天")
+                            .font(.system(size: 15, weight: .semibold)).lineLimit(1)
                         Text(store.status).font(.system(size: 10)).foregroundStyle(.secondary)
                     }
                 }
@@ -1670,6 +1771,10 @@ struct ChatView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
                     Button { showChatSearch = true } label: { Label("搜索", systemImage: "magnifyingglass") }
+                    Button { showProfileEditor = true } label: { Label("设置备注与头像", systemImage: "pencil.circle") }
+                    if conversation?.scene == "group" {
+                        Button { Task { await store.fetchGroupInfoIfNeeded(conversationID) } } label: { Label("重新获取群名称", systemImage: "arrow.clockwise") }
+                    }
                     if conversation?.scene == "channel" {
                         Button { showSchedules = true } label: { Label("频道日程", systemImage: "calendar") }
                         Button { showPins = true; Task { await store.loadPins(conversationID: conversationID) } } label: { Label("置顶消息", systemImage: "pin") }
@@ -1742,6 +1847,54 @@ struct ChatView: View {
             }
             Button("删除", role: .destructive) { store.deleteMessage(conversationID: conversationID, messageID: message.id) }
             Button("取消", role: .cancel) { menuMessage = nil }
+        }
+        .sheet(isPresented: $showProfileEditor) {
+            NavigationStack {
+                Form {
+                    Section("备注名称") {
+                        TextField("留空则使用默认名称", text: $remarkDraft)
+                        if let conv = conversation {
+                            Text("默认名称：\(conv.name)")
+                                .font(.system(size: 12)).foregroundStyle(.secondary)
+                        }
+                    }
+                    Section("头像") {
+                        PhotosPicker(selection: $avatarPickerItem, matching: .images, photoLibrary: .shared()) {
+                            Text("选择头像图片")
+                        }
+                        if let conv = conversation, conv.avatarPath != nil {
+                            Button("恢复默认头像", role: .destructive) {
+                                store.clearConversationAvatar(conversationID)
+                            }
+                        }
+                        Text("QQ 群消息事件不提供群头像，头像来自事件中的用户 avatar 字段或手动设置。")
+                            .font(.system(size: 12)).foregroundStyle(.secondary)
+                    }
+                }
+                .navigationTitle("会话资料")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarLeading) {
+                        Button("取消") { showProfileEditor = false }
+                    }
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button("保存") {
+                            store.setRemark(conversationID, remarkDraft)
+                            showProfileEditor = false
+                        }
+                    }
+                }
+                .onAppear { remarkDraft = conversation?.remark ?? "" }
+                .onChange(of: avatarPickerItem) { _, item in
+                    guard let item else { return }
+                    Task {
+                        if let data = try? await item.loadTransferable(type: Data.self) {
+                            store.setConversationAvatar(conversationID, data: data)
+                        }
+                        avatarPickerItem = nil
+                    }
+                }
+            }
         }
         .sheet(isPresented: $showForwardPicker) {
             NavigationStack {
@@ -2228,6 +2381,28 @@ struct MessageRow: View {
     }
 
     private var avatar: some View {
+        Group {
+            if let urlString = message.authorAvatarURL, let url = URL(string: urlString) {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case let .success(image):
+                        image.resizable().scaledToFill()
+                    default:
+                        letterAvatar
+                    }
+                }
+            } else if let conv = store.conversation(conversationID),
+                      let image = store.image(named: conv.avatarPath) {
+                Image(uiImage: image).resizable().scaledToFill()
+            } else {
+                letterAvatar
+            }
+        }
+        .frame(width: 30, height: 30)
+        .clipShape(Circle())
+    }
+
+    private var letterAvatar: some View {
         Text(avatarLetter)
             .font(.system(size: 13, weight: .semibold))
             .foregroundStyle(.white)
