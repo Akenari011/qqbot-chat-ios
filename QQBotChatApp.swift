@@ -718,7 +718,7 @@ final class ChatStore {
                 }
             }
         }
-        let pattern = "<@!?([A-Za-z0-9_\-]+)>"
+        let pattern = "<@!?([A-Za-z0-9_-]+)>"
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return raw }
         let ns = raw as NSString
         var result = raw
@@ -1159,7 +1159,8 @@ struct LoginView: View {
                 .font(.system(size: 34)).foregroundStyle(.white)
                 .frame(width: 74, height: 74)
                 .background(blue.gradient, in: RoundedRectangle(cornerRadius: 20))
-            Text("QQ 机器人").font(.system(size: 24, weight: .bold))
+            Text("CosBot").font(.system(size: 24, weight: .bold))
+            Text("QQ 机器人聊天").font(.system(size: 13)).foregroundStyle(.secondary)
             Text("直接连接 QQ 官方机器人接口").font(.system(size: 13)).foregroundStyle(.secondary)
             VStack(spacing: 10) {
                 TextField("机器人 AppID", text: $username)

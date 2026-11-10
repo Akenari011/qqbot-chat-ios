@@ -1,4 +1,4 @@
-# QQBot Chat iOS 交接文档
+# CosBot 交接文档
 
 ## 产品方向
 
