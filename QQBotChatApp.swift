@@ -2150,7 +2150,7 @@ struct MessageRow: View {
                 if message.isImage || message.isVideo || message.isAudio {
                     HStack(spacing: 3) {
                         Text(message.date, format: .dateTime.hour().minute())
-                            .font(.system(size: 10)).foregroundStyle(.tertiary)
+                            .font(.system(size: 11)).foregroundStyle(.tertiary)
                         statusIcon
                     }.padding(.horizontal, 4)
                 }
@@ -2284,12 +2284,12 @@ struct MessageRow: View {
         } else {
             VStack(alignment: .trailing, spacing: 3) {
                 Text(markdownText(message.text.isEmpty ? "[空消息]" : message.text))
-                    .font(.system(size: 16 * store.fontScale))
+                    .font(.system(size: 17 * store.fontScale))
                     .foregroundStyle(message.fromBot ? Color.white : Color.primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 HStack(spacing: 3) {
                     Text(message.date, format: .dateTime.hour().minute())
-                        .font(.system(size: 10))
+                        .font(.system(size: 11))
                         .foregroundStyle(message.fromBot ? Color.white.opacity(0.75) : Color.secondary)
                     statusIcon
                 }
