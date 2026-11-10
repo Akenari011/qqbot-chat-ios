@@ -1324,7 +1324,6 @@ struct ChatView: View {
     @State private var recorder: AVAudioRecorder?
     @State private var recording = false
     @State private var recordingStarted: Date?
-    @State private var showEmoji = false
     @State private var showFileImporter = false
     @State private var showSchedules = false
     @State private var showChatSearch = false
@@ -1339,7 +1338,6 @@ struct ChatView: View {
     @State private var showPins = false
     @State private var showKeyboardAlert = false
     @State private var keyboardText = ""
-    private let emojis = ["😀","😂","🥰","😎","🤔","😭","👍","👎","❤️","🎉","🔥","🌹","🍀","☀️","🌙","⭐️","✅","❌","🤝","🙏","😴","🤣","😅","🥳","😇","🤩","😋","🤗"]
     private let blue = Color(red: 0.20, green: 0.55, blue: 0.88)
 
     private var conversation: Conversation? { store.conversation(conversationID) }
@@ -1625,11 +1623,6 @@ struct ChatView: View {
                     Image(systemName: "video").font(.system(size: 20)).foregroundStyle(blue)
                 }
                 .accessibilityLabel("发送视频")
-                Button { showEmoji.toggle() } label: {
-                    Image(systemName: showEmoji ? "face.smiling.fill" : "face.smiling")
-                        .font(.system(size: 20)).foregroundStyle(blue)
-                }
-                .accessibilityLabel("表情")
                 Button { showFileImporter = true } label: {
                     Image(systemName: "paperclip").font(.system(size: 20)).foregroundStyle(blue)
                 }
@@ -1648,17 +1641,6 @@ struct ChatView: View {
                 }
             }
             .padding(.horizontal, 12).padding(.vertical, 10)
-            if showEmoji {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        ForEach(emojis, id: \.self) { emoji in
-                            Button { draft += emoji } label: { Text(emoji).font(.system(size: 26)) }
-                        }
-                    }
-                    .padding(.horizontal, 12).padding(.vertical, 8)
-                }
-                .background(Color(uiColor: .secondarySystemBackground))
-            }
         }
         .background(Color(uiColor: .systemBackground))
         .overlay(alignment: .top) { Divider() }
@@ -1671,11 +1653,19 @@ struct ComposerInput: View {
     let quoting: ChatMessage?
     let onSend: (String, ChatMessage?) -> Void
     @State private var text = ""
+    @State private var showEmoji = false
+    private let emojis = ["😀","😂","🥰","😎","🤔","😭","👍","👎","❤️","🎉","🔥","🌹","🍀","☀️","🌙","⭐️","✅","❌","🤝","🙏","😴","🤣","😅","🥳","😇","🤩","😋","🤗"]
     private let blue = Color(red: 0.20, green: 0.55, blue: 0.88)
 
     var body: some View {
-        HStack(spacing: 8) {
-            TextField("消息", text: $text, axis: .vertical).lineLimit(1...5)
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Button { showEmoji.toggle() } label: {
+                    Image(systemName: showEmoji ? "face.smiling.fill" : "face.smiling")
+                        .font(.system(size: 20)).foregroundStyle(blue)
+                }
+                .accessibilityLabel("表情")
+                TextField("消息", text: $text, axis: .vertical).lineLimit(1...5)
                 .padding(.horizontal, 12).padding(.vertical, 9)
                 .background(Color(uiColor: .secondarySystemBackground), in: Capsule())
             Button {
@@ -1692,7 +1682,19 @@ struct ComposerInput: View {
                 }
             }
             .disabled(store.sendingConversationID != nil || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            .accessibilityLabel("发送消息")
+                .accessibilityLabel("发送消息")
+            }
+            if showEmoji {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(emojis, id: \.self) { emoji in
+                            Button { text += emoji } label: { Text(emoji).font(.system(size: 26)) }
+                        }
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                }
+                .background(Color(uiColor: .secondarySystemBackground))
+            }
         }
         .onAppear { text = store.drafts[conversationID] ?? "" }
         .onDisappear {
