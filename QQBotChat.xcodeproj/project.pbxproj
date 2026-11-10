@@ -1,0 +1,26 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 56;
+	objects = {
+		A10000000000000000000001 /* QQBotChatApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000002 /* QQBotChatApp.swift */; };
+		A10000000000000000000002 /* QQBotChatApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QQBotChatApp.swift; sourceTree = "<group>"; };
+		A10000000000000000000003 /* QQBotChat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = QQBotChat.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000000000000000000004 /* Sources */ = {isa = PBXGroup; children = (A10000000000000000000002 /* QQBotChatApp.swift */,); sourceTree = "<group>"; };
+		A10000000000000000000005 /* Products */ = {isa = PBXGroup; children = (A10000000000000000000003 /* QQBotChat.app */,); name = Products; sourceTree = "<group>"; };
+		A10000000000000000000006 /* App */ = {isa = PBXGroup; children = (A10000000000000000000004 /* Sources */, A10000000000000000000005 /* Products */,); sourceTree = "<group>"; };
+		A10000000000000000000007 /* Sources phase */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000001 /* QQBotChatApp.swift in Sources */,); runOnlyForDeploymentPostprocessing = 0; };
+		A10000000000000000000008 /* Frameworks phase */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		A10000000000000000000009 /* Resources phase */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		A1000000000000000000000A /* QQBotChat target */ = {isa = PBXNativeTarget; buildConfigurationList = A1000000000000000000000D /* Build configuration list for PBXNativeTarget */; buildPhases = (A10000000000000000000007 /* Sources phase */, A10000000000000000000008 /* Frameworks phase */, A10000000000000000000009 /* Resources phase */,); buildRules = (); dependencies = (); name = QQBotChat; productName = QQBotChat; productReference = A10000000000000000000003 /* QQBotChat.app */; productType = "com.apple.product-type.application"; };
+		A1000000000000000000000B /* Project object */ = {isa = PBXProject; attributes = {BuildIndependentTargetsInParallel = 1; LastUpgradeCheck = 1600; TargetAttributes = {A1000000000000000000000A = {CreatedOnToolsVersion = 16.0; }; }; }; buildConfigurationList = A1000000000000000000000C /* Build configuration list for PBXProject */; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base,); mainGroup = A10000000000000000000006; productRefGroup = A10000000000000000000005; projectDirPath = ""; projectRoot = ""; targets = (A1000000000000000000000A /* QQBotChat target */,); };
+		A1000000000000000000000C /* Project configs */ = {isa = XCConfigurationList; buildConfigurations = (A1000000000000000000000E /* Debug project */, A1000000000000000000000F /* Release project */,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		A1000000000000000000000D /* Target configs */ = {isa = XCConfigurationList; buildConfigurations = (A10000000000000000000010 /* Debug target */, A10000000000000000000011 /* Release target */,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		A1000000000000000000000E /* Debug project */ = {isa = XCBuildConfiguration; buildSettings = {SDKROOT = iphoneos; }; name = Debug; };
+		A1000000000000000000000F /* Release project */ = {isa = XCBuildConfiguration; buildSettings = {SDKROOT = iphoneos; }; name = Release; };
+		A10000000000000000000010 /* Debug target */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGNING_ALLOWED = NO; GENERATE_INFOPLIST_FILE = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.0; PRODUCT_BUNDLE_IDENTIFIER = org.example.qqbotchat; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Debug; };
+		A10000000000000000000011 /* Release target */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGNING_ALLOWED = NO; GENERATE_INFOPLIST_FILE = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.0; PRODUCT_BUNDLE_IDENTIFIER = org.example.qqbotchat; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Release; };
+	};
+	rootObject = A1000000000000000000000B /* Project object */;
+}
