@@ -2486,6 +2486,61 @@ func tgOutgoingFill() -> LinearGradient {
     )
 }
 
+// TG ChatSwipeToReplyRecognizer: a direction-limited UIPanGestureRecognizer.
+// Vertical drags are rejected up front so the ScrollView keeps its pan gesture.
+struct SwipeReplyCatcher: UIViewRepresentable {
+    let onChanged: (CGFloat) -> Void
+    let onEnded: (CGFloat) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.backgroundColor = .clear
+        let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.panned(_:)))
+        pan.delegate = context.coordinator
+        pan.cancelsTouchesInView = false
+        pan.maximumNumberOfTouches = 1
+        view.addGestureRecognizer(pan)
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.onChanged = onChanged
+        context.coordinator.onEnded = onEnded
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var onChanged: ((CGFloat) -> Void)?
+        var onEnded: ((CGFloat) -> Void)?
+
+        @objc func panned(_ gesture: UIPanGestureRecognizer) {
+            let translation = gesture.translation(in: gesture.view)
+            guard abs(translation.x) > abs(translation.y) * 2 else { return }
+            switch gesture.state {
+            case .began, .changed:
+                onChanged?(translation.x)
+            case .ended, .cancelled:
+                onEnded?(translation.x)
+            default:
+                break
+            }
+        }
+
+        func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
+            guard let pan = gesture as? UIPanGestureRecognizer else { return false }
+            let velocity = pan.velocity(in: pan.view)
+            // TG: reject vertical drags so the ScrollView keeps its pan.
+            return abs(velocity.x) > abs(velocity.y) * 1.5
+        }
+
+        func gestureRecognizer(_ gesture: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+            true
+        }
+    }
+}
+
 struct TGDoubleCheck: View {
     let color: Color
     var body: some View {
@@ -2645,22 +2700,17 @@ struct MessageRow: View {
                 .opacity(replyProgress)
                 .padding(.trailing, 10)
         }
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 12, coordinateSpace: .local)
-                .onChanged { value in
-                    guard abs(value.translation.width) > abs(value.translation.height) * 2 else { return }
-                    withAnimation(.interactiveSpring) {
-                        dragOffset = max(-replyThreshold - 20, min(0, value.translation.width))
-                    }
-                }
-                .onEnded { value in
-                    guard abs(value.translation.width) > abs(value.translation.height) * 2 else { return }
-                    if value.translation.width < -replyThreshold {
-                        onSwipeReply(message)
-                    }
+        .background {
+            SwipeReplyCatcher(
+                onChanged: { x in
+                    dragOffset = max(-replyThreshold - 20, min(0, x))
+                },
+                onEnded: { x in
+                    if x < -replyThreshold { onSwipeReply(message) }
                     withAnimation(.timingCurve(0.380, 0.700, 0.125, 1.000, duration: 0.3)) { dragOffset = 0 }
                 }
-        )
+            )
+        }
         .contextMenu {
             Button { onQuote(message) } label: { Label("回复", systemImage: "arrowshape.turn.up.left") }
             if !message.text.isEmpty {
