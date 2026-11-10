@@ -1567,8 +1567,6 @@ struct ChatView: View {
             store: store,
             conversationID: conversationID,
             message: message,
-            mergedTop: mergedTop,
-            mergedBottom: mergedBottom,
             onQuote: handleQuote,
             onJump: { target in withAnimation { proxy.scrollTo(target, anchor: .center) } },
             onPreview: handlePreview,
@@ -1576,7 +1574,9 @@ struct ChatView: View {
             onReactionUsers: handleReactionUsers,
             onPlayVideo: handlePlayVideo,
             onLongPress: handleLongPress,
-            onForward: handleForward
+            onForward: handleForward,
+            mergedTop: mergedTop,
+            mergedBottom: mergedBottom
         )
         .id(message.id)
         .transition(.asymmetric(
