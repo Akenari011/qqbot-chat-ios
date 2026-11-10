@@ -2488,106 +2488,58 @@ func tgOutgoingFill() -> LinearGradient {
 
 // TG ChatSwipeToReplyRecognizer: a direction-limited UIPanGestureRecognizer.
 // Vertical drags are rejected up front so the ScrollView keeps its pan gesture.
-// TG ChatSwipeToReplyRecognizer: validatedGesture becomes true only after a
-// clearly horizontal translation; vertical drags are failed so the ScrollView
-// keeps its pan gesture. Judging in touchesMoved (translation) instead of
-// gestureRecognizerShouldBegin (velocity, which is ~0 at that point).
-final class TGDirectionalPanGesture: UIPanGestureRecognizer {
-    private var firstLocation: CGPoint = .zero
-    private var validated = false
+// A transparent row layer whose hitTest passes touches through to the SwiftUI
+// content beneath. The pan is attached to the ancestor view in didMoveToSuperview
+// (guaranteed non-nil there), so UIKit delivers touches to it via the ancestor
+// chain without blocking taps or context menus.
+final class SwipeRowView: UIView, UIGestureRecognizerDelegate {
+    var onChanged: ((CGFloat) -> Void)?
+    var onEnded: ((CGFloat) -> Void)?
+    var pan: UIPanGestureRecognizer?
 
-    override func reset() {
-        super.reset()
-        validated = false
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? { nil }
+
+    override func didMoveToSuperview() {
+        super.didMoveToSuperview()
+        guard let host = superview, pan == nil else { return }
+        let gesture = UIPanGestureRecognizer(target: self, action: #selector(panned(_:)))
+        gesture.delegate = self
+        gesture.cancelsTouchesInView = false
+        gesture.maximumNumberOfTouches = 1
+        host.addGestureRecognizer(gesture)
+        pan = gesture
     }
 
-    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
-        super.touchesBegan(touches, with: event)
-        if let touch = touches.first { firstLocation = touch.location(in: view) }
+    @objc private func panned(_ gesture: UIPanGestureRecognizer) {
+        guard bounds.contains(gesture.location(in: self)) else { return }
+        let translation = gesture.translation(in: self)
+        // Only horizontal drags drive the reply affordance.
+        guard abs(translation.x) > abs(translation.y) * 1.5 else { return }
+        switch gesture.state {
+        case .began, .changed:
+            onChanged?(translation.x)
+        case .ended, .cancelled:
+            onEnded?(translation.x)
+        default:
+            break
+        }
     }
 
-    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
-        guard let touch = touches.first else { return }
-        let location = touch.location(in: view)
-        let tx = location.x - firstLocation.x
-        let ty = location.y - firstLocation.y
-        let ax = abs(tx), ay = abs(ty)
-        if !validated {
-            if ay > 2.0 && ay > ax * 2.0 {
-                state = .failed
-                return
-            } else if ax > 2.0 && ay * 2.0 < ax {
-                validated = true
-            }
-        }
-        if validated {
-            super.touchesMoved(touches, with: event)
-        }
+    func gestureRecognizer(_ gesture: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        true
     }
 }
 
-// UIKit delivers touches to the hit-tested view AND all its ancestor views'
-// gesture recognizers. So we attach the pan to the row's superview instead of
-// an inserted layer: it receives touches without blocking taps/context menus.
 struct SwipeReplyCatcher: UIViewRepresentable {
     let onChanged: (CGFloat) -> Void
     let onEnded: (CGFloat) -> Void
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeUIView(context: Context) -> SwipeRowView { SwipeRowView() }
 
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView()
-        view.backgroundColor = .clear
-        view.isUserInteractionEnabled = false
-        return view
-    }
-
-    func updateUIView(_ uiView: UIView, context: Context) {
-        context.coordinator.onChanged = onChanged
-        context.coordinator.onEnded = onEnded
-        context.coordinator.rowView = uiView
-        DispatchQueue.main.async {
-            guard let host = uiView.superview, context.coordinator.pan == nil else { return }
-            let pan = TGDirectionalPanGesture(target: context.coordinator, action: #selector(Coordinator.panned(_:)))
-            pan.delegate = context.coordinator
-            pan.cancelsTouchesInView = false
-            pan.maximumNumberOfTouches = 1
-            host.addGestureRecognizer(pan)
-            context.coordinator.pan = pan
-            context.coordinator.hostView = host
-        }
-    }
-
-    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
-        if let pan = coordinator.pan { pan.view?.removeGestureRecognizer(pan) }
-    }
-
-    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
-        var onChanged: ((CGFloat) -> Void)?
-        var onEnded: ((CGFloat) -> Void)?
-        weak var rowView: UIView?
-        weak var hostView: UIView?
-        var pan: UIGestureRecognizer?
-
-        @objc func panned(_ gesture: UIPanGestureRecognizer) {
-            guard let host = hostView, let row = rowView else { return }
-            // Only react when the gesture started inside this row.
-            guard row.frame.contains(gesture.location(in: host)) else { return }
-            let translation = gesture.translation(in: host)
-            switch gesture.state {
-            case .began, .changed:
-                onChanged?(translation.x)
-            case .ended, .cancelled:
-                onEnded?(translation.x)
-            default:
-                break
-            }
-        }
-
-        func gestureRecognizer(_ gesture: UIGestureRecognizer,
-                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
-            true
-        }
+    func updateUIView(_ uiView: SwipeRowView, context: Context) {
+        uiView.onChanged = onChanged
+        uiView.onEnded = onEnded
     }
 }
 
