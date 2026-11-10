@@ -159,6 +159,7 @@ final class ChatStore {
     var mentionSyntax: Bool = (UserDefaults.standard.object(forKey: "mentionSyntax") as? Bool) ?? true {
         didSet { UserDefaults.standard.set(mentionSyntax, forKey: "mentionSyntax") }
     }
+    var chatBackgroundImage: String? = UserDefaults.standard.string(forKey: "chatBackgroundImage")
 
     private var token = ""
     private var tokenExpires = Date.distantPast
@@ -984,6 +985,20 @@ final class ChatStore {
         saveConversations()
     }
 
+    func setBackgroundImage(_ data: Data) {
+        guard let image = UIImage(data: data) else { return }
+        let resized = image.scaled(maxDimension: 1600)
+        guard let jpeg = resized.jpegData(compressionQuality: 0.8), let name = saveMedia(jpeg, ext: "jpg") else { return }
+        chatBackgroundImage = name
+        UserDefaults.standard.set(name, forKey: "chatBackgroundImage")
+        log("聊天背景图已更新")
+    }
+
+    func clearBackgroundImage() {
+        chatBackgroundImage = nil
+        UserDefaults.standard.removeObject(forKey: "chatBackgroundImage")
+    }
+
     func saveMedia(_ data: Data, ext: String) -> String? {
         let name = UUID().uuidString + "." + ext
         do {
@@ -1490,18 +1505,22 @@ struct ChatView: View {
 
     @ViewBuilder
     private var chatBackground: some View {
-        switch store.chatBackground {
+        if let name = store.chatBackgroundImage, let image = store.image(named: name) {
+            Image(uiImage: image).resizable().scaledToFill().clipped().opacity(0.35)
+        } else {
+            switch store.chatBackground {
         case "plain":
             Color(uiColor: .secondarySystemBackground)
         case "green":
             Color(red: 0.90, green: 0.95, blue: 0.90)
         case "blue":
-            Color(red: 0.89, green: 0.94, blue: 0.98)
-        default:
-            LinearGradient(
-                colors: [Color(uiColor: .systemBackground), Color(uiColor: .secondarySystemBackground)],
-                startPoint: .top, endPoint: .bottom
-            )
+                Color(red: 0.89, green: 0.94, blue: 0.98)
+            default:
+                LinearGradient(
+                    colors: [Color(uiColor: .systemBackground), Color(uiColor: .secondarySystemBackground)],
+                    startPoint: .top, endPoint: .bottom
+                )
+            }
         }
     }
 
@@ -2286,6 +2305,7 @@ struct SettingsView: View {
     let store: ChatStore
     @Environment(\.dismiss) private var dismiss
     @State private var confirmClear = false
+    @State private var bgItem: PhotosPickerItem?
     private let blue = Color(red: 0.20, green: 0.55, blue: 0.88)
 
     var body: some View {
@@ -2322,6 +2342,12 @@ struct SettingsView: View {
                         Text("蓝色").tag("blue")
                     }
                     Toggle("实验性 @ 标记（发送 <@openid>）", isOn: Binding(get: { store.mentionSyntax }, set: { store.mentionSyntax = $0 }))
+                    PhotosPicker(selection: $bgItem, matching: .images, photoLibrary: .shared()) {
+                        Text("选择聊天背景图")
+                    }
+                    if store.chatBackgroundImage != nil {
+                        Button("恢复默认背景", role: .destructive) { store.clearBackgroundImage() }
+                    }
                 }
                 Section("频道") {
                     NavigationLink("频道列表") { GuildListView(store: store) }
@@ -2359,6 +2385,15 @@ struct SettingsView: View {
             }
             .confirmationDialog("清空全部聊天记录？", isPresented: $confirmClear, titleVisibility: .visible) {
                 Button("清空", role: .destructive) { store.clearHistory() }
+            }
+            .onChange(of: bgItem) { _, item in
+                guard let item else { return }
+                Task {
+                    if let data = try? await item.loadTransferable(type: Data.self) {
+                        store.setBackgroundImage(data)
+                    }
+                    bgItem = nil
+                }
             }
         }
         .tint(blue)
