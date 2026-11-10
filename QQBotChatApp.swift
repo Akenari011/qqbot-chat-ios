@@ -158,6 +158,7 @@ final class ChatStore {
     private var reconnectAttempt = 0
     private var networkMonitor: NWPathMonitor?
 
+    private let imageCache = NSCache<NSString, UIImage>()
     private let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
     private var stateURL: URL { documents.appendingPathComponent("conversations.json") }
     private var imagesURL: URL { documents.appendingPathComponent("images", isDirectory: true) }
@@ -872,7 +873,10 @@ final class ChatStore {
 
     func image(named name: String?) -> UIImage? {
         guard let name else { return nil }
-        return UIImage(contentsOfFile: imagesURL.appendingPathComponent(name).path)
+        if let cached = imageCache.object(forKey: name as NSString) { return cached }
+        guard let image = UIImage(contentsOfFile: imagesURL.appendingPathComponent(name).path) else { return nil }
+        imageCache.setObject(image, forKey: name as NSString)
+        return image
     }
 
     // MARK: - Sending
@@ -1602,6 +1606,7 @@ struct MessageRow: View {
     @State private var playingAudio = false
     @State private var previewImage: UIImage?
     @State private var showPreview = false
+    @State private var loadedImage: UIImage?
     @State private var editing = false
     @State private var editText = ""
     @State private var showReactionUsers = false
@@ -1683,7 +1688,7 @@ struct MessageRow: View {
                 Button { UIPasteboard.general.string = message.text } label: { Label("复制", systemImage: "doc.on.doc") }
             }
             Button { onQuote(message) } label: { Label("引用", systemImage: "arrowshape.turn.up.left") }
-            if let name = message.localImage, let image = store.image(named: name) {
+            if let image = loadedImage {
                 Button {
                     UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
                     store.error = "图片已保存到相册。"
@@ -1729,6 +1734,14 @@ struct MessageRow: View {
                 store.deleteMessage(conversationID: conversationID, messageID: message.id)
             } label: { Label("删除", systemImage: "trash") }
         }
+        .task(id: message.localImage) {
+            guard let name = message.localImage, loadedImage == nil else { return }
+            let path = store.mediaURL(named: name)?.path
+            let image = await Task.detached(priority: .userInitiated) {
+                path.flatMap { UIImage(contentsOfFile: $0) }
+            }.value
+            loadedImage = image
+        }
         .sheet(isPresented: $showReactionUsers) {
             NavigationStack {
                 List(store.reactionUsers, id: \.self) { name in Text(name) }
@@ -1763,11 +1776,19 @@ struct MessageRow: View {
 
     @ViewBuilder
     private var content: some View {
-        if let name = message.localImage, let image = store.image(named: name) {
-            Image(uiImage: image).resizable().scaledToFit()
-                .frame(maxWidth: 220, maxHeight: 280)
-                .clipShape(RoundedRectangle(cornerRadius: 14))
-                .onTapGesture { previewImage = image; showPreview = true }
+        if message.localImage != nil {
+            if let image = loadedImage {
+                Image(uiImage: image).resizable().scaledToFit()
+                    .frame(maxWidth: 220, maxHeight: 280)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .onTapGesture { previewImage = image; showPreview = true }
+            } else {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 14).fill(Color(uiColor: .tertiarySystemBackground))
+                    ProgressView()
+                }
+                .frame(width: 160, height: 160)
+            }
         } else if let name = message.videoFile, let url = store.mediaURL(named: name) {
             VideoPlayer(player: AVPlayer(url: url))
                 .frame(width: 240, height: 180)
