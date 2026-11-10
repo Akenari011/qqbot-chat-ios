@@ -1449,23 +1449,23 @@ struct ConversationRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: iconName)
-                .font(.system(size: 18)).foregroundStyle(.white)
-                .frame(width: 46, height: 46)
+                .font(.system(size: 26)).foregroundStyle(.white)
+                .frame(width: 60, height: 60)
                 .background(LinearGradient(colors: avatarColors, startPoint: .topLeading, endPoint: .bottomTrailing), in: Circle())
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 4) {
                     Text(conversation.name)
-                        .font(.system(size: 16, weight: conversation.unread > 0 ? .bold : .semibold)).lineLimit(1)
+                        .font(.system(size: 16, weight: .semibold)).lineLimit(1)
                     if conversation.pinned == true {
-                        Image(systemName: "pin.fill").font(.system(size: 9)).foregroundStyle(.secondary)
+                        Image(systemName: "pin.fill").font(.system(size: 11)).foregroundStyle(.secondary)
                     }
                     Spacer()
                     Text(conversation.lastDate, format: .dateTime.hour().minute())
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                        .font(.system(size: 14)).foregroundStyle(.secondary)
                 }
                 HStack {
                     Text(conversation.lastText.isEmpty ? " " : conversation.lastText)
-                        .font(.system(size: 13)).foregroundStyle(.secondary).lineLimit(1)
+                        .font(.system(size: 15)).foregroundStyle(.secondary).lineLimit(1)
                     Spacer()
                     if conversation.unread > 0 {
                         if conversation.muted == true {
@@ -1480,7 +1480,7 @@ struct ConversationRow: View {
                 }
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 6)
     }
 }
 
