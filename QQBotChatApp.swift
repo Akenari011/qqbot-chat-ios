@@ -1828,6 +1828,11 @@ struct ChatView: View {
             messageList
             composer
         }
+        .background(
+            chatBackground
+                .frame(width: UIScreen.main.bounds.width, height: UIScreen.main.bounds.height)
+                .ignoresSafeArea(.all)
+        )
         .navigationTitle(conversation.map { store.displayName($0) } ?? "聊天")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .tabBar)
@@ -2147,7 +2152,6 @@ struct ChatView: View {
                     .animation(.easeInOut(duration: 0.2), value: visibleMessages.count)
                 }
                 .defaultScrollAnchor(.bottom)
-                .background(chatBackground)
                 .scrollDismissesKeyboard(.interactively)
                 .simultaneousGesture(TapGesture().onEnded {
                     UIApplication.shared.sendAction(
@@ -2627,7 +2631,7 @@ struct MessageRow: View {
                 }
             }
             .frame(maxWidth: bubbleMaxWidth, alignment: message.fromBot ? .trailing : .leading)
-            if message.fromBot { Color.clear.frame(width: 34, height: 34) } else { Spacer(minLength: 3) }
+            if message.fromBot { Color.clear.frame(width: 3, height: 1) } else { Spacer(minLength: 3) }
         }
         .frame(maxWidth: .infinity, alignment: message.fromBot ? .trailing : .leading)
         .offset(x: dragOffset)
