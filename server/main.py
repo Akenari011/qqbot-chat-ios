@@ -185,5 +185,6 @@ def list_messages(authorization: str | None = Header(default=None)):
     config = chat_config()
     init_db()
     with sqlite3.connect(db_path()) as db:
-        rows = db.execute("SELECT message_id, scene, target_id, author_id, author_name, content, timestamp, from_bot FROM messages WHERE scene=? AND target_id=? ORDER BY timestamp, rowid LIMIT 500", (config.scene, config.target_id)).fetchall()
+        rows = db.execute("SELECT message_id, scene, target_id, author_id, author_name, content, timestamp, from_bot FROM messages WHERE scene=? AND target_id=? ORDER BY rowid DESC LIMIT 500", (config.scene, config.target_id)).fetchall()
+    rows.reverse()
     return {"messages": [{"message_id": r[0], "scene": r[1], "target_id": r[2], "author_id": r[3], "author_name": r[4], "content": r[5], "timestamp": r[6], "from_bot": bool(r[7])} for r in rows]}

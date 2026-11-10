@@ -127,7 +127,7 @@ struct ConversationView: View {
         VStack(spacing: 0) {
             header
             HStack(spacing: 8) { Image(systemName: "info.circle.fill"); Text("由 QQ 官方机器人账号发送") }.font(.system(size: 12, weight: .medium)).foregroundStyle(Color(red: 0.24, green: 0.40, blue: 0.53)).frame(maxWidth: .infinity, alignment: .leading).padding(10).background(Color(red: 0.89, green: 0.94, blue: 0.98))
-            ScrollViewReader { proxy in ScrollView { LazyVStack(spacing: 14) { Text("今天").font(.system(size: 12)).foregroundStyle(.secondary).padding(.top, 14); ForEach(model.messages) { message in messageRow(message).id(message.id) } }.padding(.horizontal, 12).padding(.bottom, 16) }.background(Color(uiColor: .secondarySystemBackground)).onChange(of: model.messages.count) { _, _ in if let last = model.messages.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } } } }
+            ScrollViewReader { proxy in ScrollView { LazyVStack(spacing: 14) { Text("今天").font(.system(size: 12)).foregroundStyle(.secondary).padding(.top, 14); ForEach(model.messages) { message in messageRow(message).id(message.id) } }.padding(.horizontal, 12).padding(.bottom, 16) }.background(Color(uiColor: .secondarySystemBackground)).onChange(of: model.messages.last?.id) { _, _ in if let last = model.messages.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } } } }
             if let error = model.error { Text(error).font(.system(size: 12)).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.vertical, 6) }
             composer
         }

@@ -30,6 +30,18 @@ class InboxTests(unittest.TestCase):
         self.assertEqual(len(response.json()["messages"]), 1)
         self.assertEqual(response.json()["messages"][0]["author_name"], "Alice")
 
+    def test_history_contains_latest_500_messages(self):
+        with main.sqlite3.connect(main.db_path()) as db:
+            db.executemany("INSERT INTO messages VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [
+                (f"m-{i}", "c2c", "user-openid", "user", "User", str(i), "", 0)
+                for i in range(505)
+            ])
+        response = self.client.get("/api/qqbot/messages", headers=self.user_headers)
+        messages = response.json()["messages"]
+        self.assertEqual(len(messages), 500)
+        self.assertEqual(messages[0]["message_id"], "m-5")
+        self.assertEqual(messages[-1]["message_id"], "m-504")
+
     def test_internal_ingest_requires_gateway_auth(self):
         response = self.client.post("/internal/qqbot/incoming", json={"messages": []})
         self.assertEqual(response.status_code, 401)
