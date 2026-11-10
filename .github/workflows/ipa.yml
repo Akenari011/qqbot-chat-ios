@@ -21,7 +21,7 @@ jobs:
           mkdir -p ipa/Payload
           cp -R device-build/Build/Products/Release-iphoneos/QQBotChat.app ipa/Payload/
           file ipa/Payload/QQBotChat.app/QQBotChat
-          lipo -verify_arch arm64 ipa/Payload/QQBotChat.app/QQBotChat
+          lipo ipa/Payload/QQBotChat.app/QQBotChat -verify_arch arm64
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' ipa/Payload/QQBotChat.app/Info.plist
           cd ipa
           zip -qry ../QQBotChat-unsigned.ipa Payload

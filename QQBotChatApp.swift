@@ -25,11 +25,11 @@ struct ChatMessage: Identifiable, Decodable {
 private struct IncomingResponse: Decodable { let messages: [ChatMessage] }
 private struct SendResponse: Decodable { let messageID: String }
 private struct OutgoingMessage: Encodable { let text: String }
-private struct LoginInput: Encodable { let username: String; let password: String }
+private struct LoginInput: Codable { let username: String; let password: String }
 private struct LoginResponse: Decodable { let accessToken: String; enum CodingKeys: String, CodingKey { case accessToken = "access_token" } }
 
 private enum CredentialStore {
-    static let service = "org.example.qqbotchat.session"
+    static let service = "org.example.qqbotchat.bot-credentials"
     static func load() -> String? {
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne]
         var result: CFTypeRef?
@@ -52,57 +52,103 @@ final class ConversationModel {
     var draft = ""
     var username = ""
     var password = ""
+    var gatewayAddress = ""
     var authenticated = false
     var loggingIn = false
     var sending = false
     var error: String?
-    var gatewayAddress = UserDefaults.standard.string(forKey: "gatewayAddress") ?? ""
-    private var baseURL: URL { URL(string: gatewayAddress) ?? URL(string: "https://your-domain.example")! }
-    private var pollTask: Task<Void, Never>?
-    private var credentials: String?
+    var status = "未连接"
+    private var token = ""
+    private var socket: URLSessionWebSocketTask?
+    private var receiver: Task<Void, Never>?
+    private var heartbeat: Task<Void, Never>?
+    private var sequence: Int?
+    private var target = ""
+    private var scene = "c2c"
+    private var replyID = ""
+    private var replySequence = 0
 
     init() {
-        if let saved = CredentialStore.load() { credentials = saved; authenticated = true }
+        if let saved = CredentialStore.load(), let data = saved.data(using: .utf8), let pair = try? JSONDecoder().decode(LoginInput.self, from: data) {
+            username = pair.username; password = pair.password
+        }
     }
-
-    func start() {
-        guard pollTask == nil, authenticated else { return }
-        pollTask = Task { while !Task.isCancelled { await refresh(); try? await Task.sleep(for: .seconds(3)) } }
+    func start() {}
+    func stop() { receiver?.cancel(); heartbeat?.cancel(); socket?.cancel(with: .goingAway, reason: nil); socket = nil }
+    private func api(_ path: String, body: [String: Any]? = nil, authorized: Bool = true) async throws -> [String: Any] {
+        var request = URLRequest(url: URL(string: "https://api.bot.qq.com" + path)!)
+        request.httpMethod = body == nil ? "GET" : "POST"
+        if authorized { request.setValue("QQBot " + token, forHTTPHeaderField: "Authorization") }
+        if let body { request.httpBody = try JSONSerialization.data(withJSONObject: body); request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode), let result = try JSONSerialization.jsonObject(with: data) as? [String: Any], (result["code"] as? Int ?? result["err_code"] as? Int ?? 0) == 0 else { throw URLError(.badServerResponse) }
+        return result
     }
-    func stop() { pollTask?.cancel(); pollTask = nil }
-
-    private func request(path: String, method: String = "GET", body: Data? = nil) -> URLRequest {
-        var request = URLRequest(url: baseURL.appending(path: path)); request.httpMethod = method
-        if let token = credentials { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
-        if body != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
-        request.httpBody = body; return request
+    private func packet(_ value: [String: Any]) async throws {
+        let data = try JSONSerialization.data(withJSONObject: value)
+        try await socket?.send(.data(data))
     }
-
     func login() async {
-        guard !username.isEmpty, !password.isEmpty, let url = URL(string: gatewayAddress), url.scheme == "https", url.host != nil else { error = "请填写账号密码并使用 HTTPS 网关。"; return }
-        loggingIn = true; defer { loggingIn = false }
+        guard !username.isEmpty, !password.isEmpty else { error = "请输入 AppID 和 AppSecret"; return }
+        stop(); loggingIn = true; defer { loggingIn = false }
         do {
-            let body = try JSONEncoder().encode(LoginInput(username: username, password: password))
-            let (data, response) = try await URLSession.shared.data(for: request(path: "/api/qqbot/login", method: "POST", body: body))
-            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw URLError(.userAuthenticationRequired) }
-            let token = try JSONDecoder().decode(LoginResponse.self, from: data).accessToken
-            UserDefaults.standard.set(gatewayAddress, forKey: "gatewayAddress"); credentials = token; CredentialStore.save(token: token); authenticated = true; error = nil; password = ""; start()
-        } catch { credentials = nil; self.error = "登录失败，请检查账号、密码和网关地址。" }
+            let auth = try await api("/app/getAppAccessToken", body: ["appId":username, "clientSecret":password], authorized: false)
+            guard let access = auth["access_token"] as? String else { throw URLError(.userAuthenticationRequired) }
+            token = access
+            let gateway = try await api("/gateway/bot")
+            guard let address = gateway["url"] as? String, let url = URL(string: address), url.scheme == "wss" else { throw URLError(.badURL) }
+            let ws = URLSession.shared.webSocketTask(with: url); socket = ws; ws.resume()
+            authenticated = true; status = "连接中"; error = nil
+            if let data = try? JSONEncoder().encode(LoginInput(username: username, password: password)), let text = String(data: data, encoding: .utf8) { CredentialStore.save(token: text) }
+            receiver = Task { await receive() }
+        } catch { authenticated = false; error = "QQ 登录失败，请检查机器人凭证和网络。"; stop() }
     }
-
-    func logout() { stop(); CredentialStore.clear(); credentials = nil; authenticated = false; messages = []; password = "" }
-
-    func refresh() async {
-        guard authenticated else { return }
-        do { let (data, response) = try await URLSession.shared.data(for: request(path: "/api/qqbot/messages")); if (response as? HTTPURLResponse)?.statusCode == 401 { logout(); error = "登录已过期，请重新登录。"; return }; guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw URLError(.badServerResponse) }; messages = try JSONDecoder().decode(IncomingResponse.self, from: data).messages; error = nil }
-        catch { self.error = "暂时无法同步消息，请检查网络连接。" }
+    private func receive() async {
+        do {
+            while !Task.isCancelled, let socket {
+                let raw = try await socket.receive()
+                let data: Data
+                switch raw { case .data(let d): data = d; case .string(let s): data = Data(s.utf8); @unknown default: continue }
+                guard let event = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+                if let seq = event["s"] as? Int { sequence = seq }
+                let op = event["op"] as? Int ?? -1
+                let payload = event["d"] as? [String: Any] ?? [:]
+                if op == 10 {
+                    let interval = (payload["heartbeat_interval"] as? Double ?? 30000) / 1000
+                    try await packet(["op":2,"d":["token":"QQBot " + token,"intents":(1 << 25) | (1 << 30),"shard":[0,1],"properties":[:]]])
+                    heartbeat = Task { do { while !Task.isCancelled { try await Task.sleep(for: .seconds(interval)); try await self.packet(["op":1,"d":self.sequence.map { $0 as Any } ?? NSNull()]) } } catch {} }
+                } else if op == 7 || op == 9 { throw URLError(.networkConnectionLost) }
+                if event["t"] as? String == "READY" { status = "QQ 已连接，等待消息" }
+                if let kind = event["t"] as? String, ["C2C_MESSAGE_CREATE","GROUP_AT_MESSAGE_CREATE","GROUP_MESSAGE_CREATE"].contains(kind) {
+                    let author = payload["author"] as? [String: Any] ?? [:]
+                    let nextTarget = payload["group_openid"] as? String ?? author["user_openid"] as? String ?? ""
+                    guard !nextTarget.isEmpty, let id = payload["id"] as? String else { continue }
+                    if target != nextTarget { messages = []; target = nextTarget }
+                    scene = kind == "C2C_MESSAGE_CREATE" ? "c2c" : "group"
+                    replyID = id; replySequence = 0; status = "QQ 已连接"
+                    if !messages.contains(where: { $0.id == id }) {
+                        messages.append(ChatMessage(id: id, text: payload["content"] as? String ?? "[非文字消息]", timestamp: payload["timestamp"] as? String ?? ISO8601DateFormatter().string(from: .now), fromBot: false, authorName: author["username"] as? String ?? "QQ 用户"))
+                    }
+                }
+            }
+        } catch { if !Task.isCancelled { status = "连接已断开"; self.error = "连接已断开，请退出并重新连接。" }; heartbeat?.cancel() }
     }
-
+    func logout() { stop(); authenticated = false; token = ""; target = ""; replyID = ""; messages = [] }
+    func refresh() async {}
     func send() async {
-        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines); guard authenticated, !text.isEmpty, !sending else { return }
-        sending = true; defer { sending = false }
-        do { let body = try JSONEncoder().encode(OutgoingMessage(text: text)); let (data, response) = try await URLSession.shared.data(for: request(path: "/api/qqbot/messages", method: "POST", body: body)); guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw URLError(.badServerResponse) }; _ = try JSONDecoder().decode(SendResponse.self, from: data); draft = ""; await refresh() }
-        catch { self.error = "消息未发送，请检查机器人权限和网络。" }
+        guard !target.isEmpty, !replyID.isEmpty else { error = "请先从 QQ 给机器人发送消息，再在这里回复。"; return }
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !sending else { return }
+        sending = true; defer { sending = false }; replySequence += 1
+        let destination = target; let context = replyID; let kind = scene
+        do {
+            let path = kind == "c2c" ? "/v2/users/" : "/v2/groups/"
+            let encoded = destination.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? destination
+            let result = try await api(path + encoded + "/messages", body: ["content":text,"msg_type":0,"msg_id":context,"msg_seq":replySequence])
+            guard let id = result["id"] as? String else { throw URLError(.badServerResponse) }
+            if target == destination { messages.append(ChatMessage(id:id,text:text,timestamp:ISO8601DateFormatter().string(from:.now),fromBot:true,authorName:"QQ 机器人")) }
+            draft = ""; error = nil
+        } catch { self.error = "发送失败，请检查回复时限、机器人权限和连接。" }
     }
 }
 
@@ -116,9 +162,8 @@ struct ConversationView: View {
         VStack(spacing: 16) {
             Image(systemName: "bubble.left.and.bubble.right.fill").font(.system(size: 30)).foregroundStyle(blue).frame(width: 64, height: 64).background(blue.opacity(0.12), in: Circle())
             Text("QQ 机器人聊天").font(.system(size: 22, weight: .semibold))
-            TextField("服务器地址（https://）", text: $model.gatewayAddress).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL).textFieldStyle(.roundedBorder)
-            TextField("聊天账号", text: $model.username).textInputAutocapitalization(.never).autocorrectionDisabled().textFieldStyle(.roundedBorder)
-            SecureField("密码", text: $model.password).textFieldStyle(.roundedBorder)
+            TextField("QQ 机器人 AppID", text: $model.username).textInputAutocapitalization(.never).autocorrectionDisabled().textFieldStyle(.roundedBorder)
+            SecureField("QQ 机器人 AppSecret", text: $model.password).textFieldStyle(.roundedBorder)
             if let error = model.error { Text(error).font(.system(size: 13)).foregroundStyle(.red) }
             Button { Task { await model.login() } } label: { if model.loggingIn { ProgressView().tint(.white) } else { Text("登录").fontWeight(.semibold) } }.frame(maxWidth: .infinity).frame(height: 46).foregroundStyle(.white).background(blue, in: RoundedRectangle(cornerRadius: 10)).disabled(model.loggingIn)
         }.padding(24).frame(maxWidth: 420).frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -132,7 +177,7 @@ struct ConversationView: View {
             composer
         }
     }
-    private var header: some View { HStack(spacing: 12) { Image(systemName: "bubble.left.and.bubble.right.fill").foregroundStyle(.white).frame(width: 42, height: 42).background(blue.gradient, in: Circle()); VStack(alignment: .leading, spacing: 3) { Text("QQ 机器人").font(.system(size: 16, weight: .semibold)); Text("机器人账号 · 在线").font(.system(size: 12)).foregroundStyle(.secondary) }; Spacer(); Button { model.logout() } label: { Image(systemName: "rectangle.portrait.and.arrow.right").foregroundStyle(blue) }.accessibilityLabel("退出登录") }.padding(14).overlay(alignment: .bottom) { Divider() } }
+    private var header: some View { HStack(spacing: 12) { Image(systemName: "bubble.left.and.bubble.right.fill").foregroundStyle(.white).frame(width: 42, height: 42).background(blue.gradient, in: Circle()); VStack(alignment: .leading, spacing: 3) { Text("QQ 机器人").font(.system(size: 16, weight: .semibold)); Text(model.status).font(.system(size: 12)).foregroundStyle(.secondary) }; Spacer(); Button { model.logout() } label: { Image(systemName: "rectangle.portrait.and.arrow.right").foregroundStyle(blue) }.accessibilityLabel("退出登录") }.padding(14).overlay(alignment: .bottom) { Divider() } }
     private func messageRow(_ message: ChatMessage) -> some View {
         HStack(alignment: .bottom, spacing: 7) {
             if message.fromBot { Spacer(minLength: 42) }
