@@ -25,9 +25,9 @@
 | API | 状态 | 说明 |
 | --- | --- | --- |
 | me | 已接入 | 设置页显示机器人名称 |
-| me_guilds | 待接入 | 机器人加入的频道列表 |
+| me_guilds | 已接入 | 设置 → 频道列表 |
 | get_guild / get_channels / get_channel | 待接入 | 频道与子频道信息 |
-| get_guild_members / get_guild_member | 待接入 | 频道成员列表 |
+| get_guild_members / get_guild_member | 已接入 | 频道页加载成员列表 |
 | get_guild_roles / create/update/delete_guild_role | 不适用 | 角色管理后台能力 |
 | get_voice_members | 不适用 | 语音频道成员 |
 | create/update/delete_channel | 不适用 | 频道结构管理 |
@@ -36,8 +36,8 @@
 | get_permissions / post_permission_demand | 不适用 | API 权限申请 |
 | get_schedules / create/update/delete_schedule | 待接入 | 频道日程 |
 | get_threads / post_thread / delete_thread | 不适用 | 论坛频道 |
-| put_reaction / delete_reaction / get_reaction_users | 待接入 | 频道消息表情回应 |
-| put_pin / delete_pin / get_pins | 待接入 | 频道消息置顶 |
+| put_reaction / delete_reaction / get_reaction_users | 部分接入 | 长按频道消息可点赞回应；删除与用户列表未做 |
+| put_pin / delete_pin / get_pins | 部分接入 | 长按频道消息可置顶；取消与列表未做 |
 | mute_all / mute_member / mute_multi_member 等 | 不适用 | 频道禁言管理 |
 | update_audio / on_microphone / off_microphone | 不适用 | 语音房麦克风控制 |
 
@@ -58,4 +58,5 @@
 
 - C2C 与群聊只提供消息收发、富媒体与按钮，不提供成员列表、撤回、置顶、表情回应等频道级能力。
 - 频道管理类 API 需要机器人在对应频道拥有管理权限；当前客户端没有频道选择页，频道会话由收到的事件自动建立。
-- 后续会优先接入 `me_guilds`、`get_guild_members`、`put_reaction`、`put_pin`、`create_announce` 这些与聊天体验直接相关的频道能力。
+- 已接入 `me_guilds`、`get_guild_members`、`put_reaction`、`put_pin`。
+- 后续优先接入 `create_announce`（公告）、`get_schedules`（日程）、`post_keyboard_message`（发送按钮消息）与 `patch_guild_message`（编辑消息）。
