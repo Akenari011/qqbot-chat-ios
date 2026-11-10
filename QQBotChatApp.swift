@@ -1480,57 +1480,7 @@ struct ChatView: View {
                     .padding(.horizontal, 14).padding(.vertical, 6)
                     .background(Color.red.opacity(0.06))
             }
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: 12) {
-                        if let conversation {
-                            let visible = Array(conversation.messages.suffix(300))
-                            if visible.isEmpty {
-                                Text("从 QQ 给机器人发一条消息开始聊天")
-                                    .font(.system(size: 13)).foregroundStyle(.secondary)
-                                    .padding(.top, 40)
-                            }
-                            ForEach(Array(visible.enumerated()), id: \.element.id) { index, message in
-                                if index == 0 || !Calendar.current.isDate(message.date, inSameDayAs: visible[index - 1].date) {
-                                    Text(message.date, format: .dateTime.year().month().day())
-                                        .font(.system(size: 11)).foregroundStyle(.secondary)
-                                        .padding(.vertical, 6)
-                                }
-                                MessageRow(
-                                    store: store,
-                                    conversationID: conversationID,
-                                    message: message,
-                                    onQuote: { quoting = $0 },
-                                    onJump: { target in withAnimation { proxy.scrollTo(target, anchor: .center) } },
-                                    onPreview: { image in previewImage = image; showPreview = true },
-                                    onEdit: { target in editingMessage = target; editText = target.text },
-                                    onReactionUsers: { messageID in
-                                        reactionMessageID = messageID
-                                        showReactionUsers = true
-                                        Task { await store.loadReactionUsers(conversationID: conversationID, messageID: messageID) }
-                                    },
-                                    onPlayVideo: { url in playingVideoURL = url },
-                                    onLongPress: { target in menuMessage = target }
-                                ).id(message.id)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 12).padding(.vertical, 12)
-                }
-                .background(chatBackground)
-                .onChange(of: jumpTarget) { _, target in
-                    if let target { withAnimation { proxy.scrollTo(target, anchor: .center) }; jumpTarget = nil }
-                }
-                .onChange(of: conversation?.messages.count) { _, _ in
-                    if let last = conversation?.messages.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
-                }
-                .onChange(of: scrollTick) { _, _ in
-                    if let last = conversation?.messages.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
-                }
-                .onAppear {
-                    if let last = conversation?.messages.last { proxy.scrollTo(last.id, anchor: .bottom) }
-                }
-            }
+            messageList
             composer
         }
         .navigationTitle(conversation?.name ?? "聊天")
@@ -1753,6 +1703,60 @@ struct ChatView: View {
         Task { await store.sendAudio(data, to: conversationID, duration: duration) }
     }
 
+    private var messageList: some View {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 12) {
+                        if let conversation {
+                            let visible = Array(conversation.messages.suffix(300))
+                            if visible.isEmpty {
+                                Text("从 QQ 给机器人发一条消息开始聊天")
+                                    .font(.system(size: 13)).foregroundStyle(.secondary)
+                                    .padding(.top, 40)
+                            }
+                            ForEach(Array(visible.enumerated()), id: \.element.id) { index, message in
+                                if index == 0 || !Calendar.current.isDate(message.date, inSameDayAs: visible[index - 1].date) {
+                                    Text(message.date, format: .dateTime.year().month().day())
+                                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                                        .padding(.vertical, 6)
+                                }
+                                MessageRow(
+                                    store: store,
+                                    conversationID: conversationID,
+                                    message: message,
+                                    onQuote: { quoting = $0 },
+                                    onJump: { target in withAnimation { proxy.scrollTo(target, anchor: .center) } },
+                                    onPreview: { image in previewImage = image; showPreview = true },
+                                    onEdit: { target in editingMessage = target; editText = target.text },
+                                    onReactionUsers: { messageID in
+                                        reactionMessageID = messageID
+                                        showReactionUsers = true
+                                        Task { await store.loadReactionUsers(conversationID: conversationID, messageID: messageID) }
+                                    },
+                                    onPlayVideo: { url in playingVideoURL = url },
+                                    onLongPress: { target in menuMessage = target }
+                                ).id(message.id)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 12)
+                }
+                .background(chatBackground)
+                .onChange(of: jumpTarget) { _, target in
+                    if let target { withAnimation { proxy.scrollTo(target, anchor: .center) }; jumpTarget = nil }
+                }
+                .onChange(of: conversation?.messages.count) { _, _ in
+                    if let last = conversation?.messages.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
+                }
+                .onChange(of: scrollTick) { _, _ in
+                    if let last = conversation?.messages.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
+                }
+                .onAppear {
+                    if let last = conversation?.messages.last { proxy.scrollTo(last.id, anchor: .bottom) }
+                }
+            }
+    }
+
     private var composer: some View {
         VStack(spacing: 0) {
             if let quoting {
@@ -1790,12 +1794,12 @@ struct ChatView: View {
                         .foregroundStyle(recording ? Color.red : blue)
                 }
                 .accessibilityLabel(recording ? "停止录音并发送" : "录制语音")
-                ComposerInput(store: store, conversationID: conversationID, quoting: quoting, onFocus: { scrollTick += 1 }) { text, quote in
+                ComposerInput(store: store, conversationID: conversationID, quoting: quoting, onSend: { text, quote in
                     quoting = nil
                     store.drafts[conversationID] = ""
                     UserDefaults.standard.set(store.drafts, forKey: "drafts")
                     Task { await store.sendText(text, to: conversationID, quote: quote) }
-                }
+                }, onFocus: { scrollTick += 1 })
             }
             .padding(.horizontal, 12).padding(.vertical, 10)
         }
@@ -1988,7 +1992,37 @@ struct MessageRow: View {
             if !message.fromBot { Spacer(minLength: 48) } else { botAvatar }
         }
         .frame(maxWidth: .infinity, alignment: message.fromBot ? .trailing : .leading)
-        .onLongPressGesture(minimumDuration: 0.35) { onLongPress(message) }
+        .contextMenu {
+            if !message.text.isEmpty {
+                Button { UIPasteboard.general.string = message.text } label: { Label("复制", systemImage: "doc.on.doc") }
+            }
+            Button { onQuote(message) } label: { Label("引用", systemImage: "arrowshape.turn.up.left") }
+            if message.status == "failed" {
+                Button { Task { await store.retryMessage(conversationID: conversationID, messageID: message.id) } } label: { Label("重发", systemImage: "arrow.clockwise") }
+            }
+            if let image = loadedImage {
+                Button { UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil); store.error = "图片已保存到相册。" } label: { Label("保存图片", systemImage: "square.and.arrow.down") }
+            }
+            if let name = message.videoFile, let url = store.mediaURL(named: name) {
+                Button { UISaveVideoAtPathToSavedPhotosAlbum(url.path, nil, nil, nil); store.error = "视频已保存到相册。" } label: { Label("保存视频", systemImage: "square.and.arrow.down") }
+            }
+            if store.conversation(conversationID)?.scene == "channel" {
+                Menu("频道操作") {
+                    if message.fromBot {
+                        Button { onEdit(message) } label: { Label("编辑", systemImage: "pencil") }
+                    }
+                    Button { Task { await store.react(conversationID: conversationID, messageID: message.id) } } label: { Label("点赞回应", systemImage: "hand.thumbsup") }
+                    Button { Task { await store.removeReaction(conversationID: conversationID, messageID: message.id) } } label: { Label("取消点赞", systemImage: "hand.thumbsdown") }
+                    Button { Task { await store.pinMessage(conversationID: conversationID, messageID: message.id) } } label: { Label("置顶", systemImage: "pin") }
+                    Button { Task { await store.unpinMessage(conversationID: conversationID, messageID: message.id) } } label: { Label("取消置顶", systemImage: "pin.slash") }
+                    Button { Task { await store.publishAnnounce(conversationID: conversationID, messageID: message.id) } } label: { Label("设为公告", systemImage: "megaphone") }
+                    Button { Task { await store.deleteAnnounce(conversationID: conversationID, messageID: message.id) } } label: { Label("取消公告", systemImage: "megaphone.slash") }
+                    Button { onReactionUsers(message.id) } label: { Label("点赞用户", systemImage: "person.2") }
+                    Button { Task { await store.recallMessage(conversationID: conversationID, messageID: message.id) } } label: { Label("撤回", systemImage: "arrow.uturn.backward") }
+                }
+            }
+            Button(role: .destructive) { store.deleteMessage(conversationID: conversationID, messageID: message.id) } label: { Label("删除", systemImage: "trash") }
+        }
         .task(id: message.videoFile) {
             guard let name = message.videoFile, let url = store.mediaURL(named: name), videoThumbnail == nil else { return }
             let thumbnail = await Task.detached(priority: .utility) { () -> UIImage? in
