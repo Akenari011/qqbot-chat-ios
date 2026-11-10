@@ -26,12 +26,14 @@
 - 这不是手机 App 实际验收，Swift URLSession 实现尚未在手机上验证收发。
 - 历史网关版模拟器构建及容器冒烟 CI 通过；Python 19 项测试通过（这些测试不覆盖独立 App 协议实现）。
 - 首次 IPA 的 arm64 编译成功，但 lipo 参数顺序错误导致打包失败；已修复。
-- 独立版首轮 Swift catch 属性遮蔽编译错误已修复，提交 85c0394；最终独立版真机编译、arm64 验证、IPA 打包与上传全部通过，运行 https://github.com/Lbcheng1145/qqbot-chat-ios/actions/runs/42810570200 。产物 QQBotChat-unsigned.ipa，SHA-256：411288f8e55efeee61e33f69d63a096fbb02bfeba2f4513b4659720975cc2904。已下载并验证 SHA-256 和 Payload 包结构。
+- 独立版首轮 Swift catch 属性遮蔽编译错误已修复，提交 85c0394；后续修复 lipo 参数顺序后首次成功打包，运行 42810570200。
+- 接手后完成第二轮稳定性改造（提交 34834a7、873e14f）：心跳 ACK 检测、指数退避自动重连、token 到期刷新、按会话本地历史持久化（最近 200 条）、补全 CFBundle 版本号与 UILaunchScreen。真机编译、arm64 验证、IPA 打包与上传全部通过：https://github.com/Lbcheng1145/qqbot-chat-ios/actions/runs/42811457751
+- 最终产物 QQBotChat-unsigned.ipa：SHA-256 4cd918ff1729370fa95c451e3c316e04b1b07e0ff3ebbc93e991196f4c2e745d，大小 118989 字节，Bundle org.example.qqbotchat，版本 1.0(1)，最低 iOS 17.0，Info.plist 含 UILaunchScreen。已下载并逐项校验。
 
 ## 已知限制及后续优先项
 
-- 当前只显示最近收到的一个会话；来源切换清空内存消息列表，无完整会话列表和本地历史持久化。
-- 无自动重连、Resume、token 到期刷新及 heartbeat ACK 超时检测；断线需退出并重新登录。
+- 当前只显示最近收到的一个会话；切换来源会加载该会话独立历史，但没有会话列表 UI，不能手动切换或新建会话。
+- 已实现自动重连、token 到期前刷新和 heartbeat ACK 超时检测；尚未实现 Gateway Resume（断线后重新 Identify），重连期间的消息可能丢失。
 - iOS 后台/锁屏可能暂停 WebSocket；没有 APNs 推送，不能保证后台消息接收。
 - 目前只处理单聊及群文字事件，不提供频道 UI、附件显示/上传。
 - QQ 被动回复时限、次数、审核和权限受平台限制；发送失败仅给通用提示。
