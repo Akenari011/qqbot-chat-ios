@@ -2488,55 +2488,68 @@ func tgOutgoingFill() -> LinearGradient {
 
 // TG ChatSwipeToReplyRecognizer: a direction-limited UIPanGestureRecognizer.
 // Vertical drags are rejected up front so the ScrollView keeps its pan gesture.
-struct SwipeReplyCatcher: UIViewRepresentable {
+// TG ChatSwipeToReplyRecognizer: validatedGesture becomes true only after a
+// clearly horizontal translation; vertical drags are failed so the ScrollView
+// keeps its pan gesture. Judging in touchesMoved (translation) instead of
+// gestureRecognizerShouldBegin (velocity, which is ~0 at that point).
+final class TGDirectionalPanGesture: UIPanGestureRecognizer {
+    private var firstLocation: CGPoint = .zero
+    private var validated = false
+
+    override func reset() {
+        super.reset()
+        validated = false
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesBegan(touches, with: event)
+        if let touch = touches.first { firstLocation = touch.location(in: view) }
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard let touch = touches.first else { return }
+        let location = touch.location(in: view)
+        let tx = location.x - firstLocation.x
+        let ty = location.y - firstLocation.y
+        let ax = abs(tx), ay = abs(ty)
+        if !validated {
+            if ay > 2.0 && ay > ax * 2.0 {
+                state = .failed
+                return
+            } else if ax > 2.0 && ay * 2.0 < ax {
+                validated = true
+            }
+        }
+        if validated {
+            super.touchesMoved(touches, with: event)
+        }
+    }
+}
+
+// Installs the recognizer on the SwiftUI view's own UIView, so it receives
+// touches without inserting a hit-test-blocking layer (iOS 18+).
+struct SwipeReplyCatcher: UIGestureRecognizerRepresentable {
     let onChanged: (CGFloat) -> Void
     let onEnded: (CGFloat) -> Void
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
-
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView()
-        view.backgroundColor = .clear
-        let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.panned(_:)))
-        pan.delegate = context.coordinator
+    func makeUIGestureRecognizer(context: Context) -> TGDirectionalPanGesture {
+        let pan = TGDirectionalPanGesture()
         pan.cancelsTouchesInView = false
         pan.maximumNumberOfTouches = 1
-        view.addGestureRecognizer(pan)
-        return view
+        return pan
     }
 
-    func updateUIView(_ uiView: UIView, context: Context) {
-        context.coordinator.onChanged = onChanged
-        context.coordinator.onEnded = onEnded
-    }
+    func updateUIGestureRecognizer(_ recognizer: TGDirectionalPanGesture, context: Context) {}
 
-    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
-        var onChanged: ((CGFloat) -> Void)?
-        var onEnded: ((CGFloat) -> Void)?
-
-        @objc func panned(_ gesture: UIPanGestureRecognizer) {
-            let translation = gesture.translation(in: gesture.view)
-            guard abs(translation.x) > abs(translation.y) * 2 else { return }
-            switch gesture.state {
-            case .began, .changed:
-                onChanged?(translation.x)
-            case .ended, .cancelled:
-                onEnded?(translation.x)
-            default:
-                break
-            }
-        }
-
-        func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
-            guard let pan = gesture as? UIPanGestureRecognizer else { return false }
-            let velocity = pan.velocity(in: pan.view)
-            // TG: reject vertical drags so the ScrollView keeps its pan.
-            return abs(velocity.x) > abs(velocity.y) * 1.5
-        }
-
-        func gestureRecognizer(_ gesture: UIGestureRecognizer,
-                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
-            true
+    func handleUIGestureRecognizerAction(_ recognizer: TGDirectionalPanGesture, context: Context) {
+        let translation = recognizer.translation(in: recognizer.view)
+        switch recognizer.state {
+        case .began, .changed:
+            onChanged(translation.x)
+        case .ended, .cancelled:
+            onEnded(translation.x)
+        default:
+            break
         }
     }
 }
@@ -2924,13 +2937,25 @@ struct MessageRow: View {
     }
 
     private func markdownText(_ text: String) -> AttributedString {
-        if let attributed = try? AttributedString(
+        var attributed: AttributedString
+        if let parsed = try? AttributedString(
             markdown: text,
             options: AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
         ) {
-            return attributed
+            attributed = parsed
+        } else {
+            attributed = AttributedString(text)
         }
-        return AttributedString(text)
+        // TG: entities rendered with linkTextColor (incoming 0x004bad, outgoing white).
+        let linkColor: Color = message.fromBot ? .white : Color(red: 0, green: 0x4b / 255, blue: 0xad / 255)
+        let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+        let ns = text as NSString
+        for match in detector?.matches(in: text, range: NSRange(location: 0, length: ns.length)) ?? [] {
+            guard let range = Range(match.range, in: attributed), let url = match.url else { continue }
+            attributed[range].link = url
+            attributed[range].foregroundColor = linkColor
+        }
+        return attributed
     }
 
     private func toggleAudio(_ url: URL) {
