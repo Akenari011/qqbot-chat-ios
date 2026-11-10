@@ -128,6 +128,7 @@ final class ChatStore {
     var botID = ""
     var guilds: [GuildInfo] = []
     var guildMembers: [String: [String]] = [:]
+    var guildChannels: [String: [String]] = [:]
     var schedules: [String] = []
     var pins: [String] = []
     var reactionUsers: [String] = []
@@ -136,6 +137,12 @@ final class ChatStore {
     }
     var showArchived: Bool = UserDefaults.standard.bool(forKey: "showArchived") {
         didSet { UserDefaults.standard.set(showArchived, forKey: "showArchived") }
+    }
+    var fontScale: Double = UserDefaults.standard.double(forKey: "fontScale") == 0 ? 1.0 : UserDefaults.standard.double(forKey: "fontScale") {
+        didSet { UserDefaults.standard.set(fontScale, forKey: "fontScale") }
+    }
+    var chatBackground: String = UserDefaults.standard.string(forKey: "chatBackground") ?? "default" {
+        didSet { UserDefaults.standard.set(chatBackground, forKey: "chatBackground") }
     }
 
     private var token = ""
@@ -216,6 +223,19 @@ final class ChatStore {
             }
         } catch {
             self.error = "频道列表获取失败，机器人可能未加入任何频道。"
+        }
+    }
+
+    func loadChannels(guildID: String) async {
+        do {
+            let raw = try await apiAny("/guilds/" + guildID + "/channels")
+            guard let list = raw as? [[String: Any]] else { return }
+            guildChannels[guildID] = list.compactMap { item in
+                guard let name = item["name"] as? String else { return nil }
+                return name
+            }
+        } catch {
+            self.error = "子频道获取失败，可能需要频道权限。"
         }
     }
 
@@ -1278,6 +1298,23 @@ struct ChatView: View {
 
     private var conversation: Conversation? { store.conversation(conversationID) }
 
+    @ViewBuilder
+    private var chatBackground: some View {
+        switch store.chatBackground {
+        case "plain":
+            Color(uiColor: .secondarySystemBackground)
+        case "green":
+            Color(red: 0.90, green: 0.95, blue: 0.90)
+        case "blue":
+            Color(red: 0.89, green: 0.94, blue: 0.98)
+        default:
+            LinearGradient(
+                colors: [Color(uiColor: .systemBackground), Color(uiColor: .secondarySystemBackground)],
+                startPoint: .top, endPoint: .bottom
+            )
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             if let error = store.error {
@@ -1290,6 +1327,11 @@ struct ChatView: View {
                 ScrollView {
                     LazyVStack(spacing: 12) {
                         if let conversation {
+                            if conversation.messages.isEmpty {
+                                Text("从 QQ 给机器人发一条消息开始聊天")
+                                    .font(.system(size: 13)).foregroundStyle(.secondary)
+                                    .padding(.top, 40)
+                            }
                             ForEach(Array(conversation.messages.enumerated()), id: \.element.id) { index, message in
                                 if index == 0 || !Calendar.current.isDate(message.date, inSameDayAs: conversation.messages[index - 1].date) {
                                     Text(message.date, format: .dateTime.year().month().day())
@@ -1302,12 +1344,7 @@ struct ChatView: View {
                     }
                     .padding(.horizontal, 12).padding(.vertical, 12)
                 }
-                .background(
-                    LinearGradient(
-                        colors: [Color(uiColor: .systemBackground), Color(uiColor: .secondarySystemBackground)],
-                        startPoint: .top, endPoint: .bottom
-                    )
-                )
+                .background(chatBackground)
                 .animation(.easeOut(duration: 0.2), value: conversation?.messages.count)
                 .onChange(of: conversation?.messages.count) { _, _ in
                     if let last = conversation?.messages.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
@@ -1732,7 +1769,7 @@ struct MessageRow: View {
         } else {
             VStack(alignment: .trailing, spacing: 3) {
                 Text(markdownText(message.text.isEmpty ? "[空消息]" : message.text))
-                    .font(.system(size: 16))
+                    .font(.system(size: 16 * store.fontScale))
                     .foregroundStyle(message.fromBot ? Color.white : Color.primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 HStack(spacing: 3) {
@@ -1805,6 +1842,15 @@ struct GuildListView: View {
             }
             ForEach(store.guilds) { guild in
                 Section(guild.name) {
+                    if let channels = store.guildChannels[guild.id] {
+                        ForEach(channels, id: \.self) { name in
+                            Label(name, systemImage: "bubble.left.and.bubble.right")
+                        }
+                    } else {
+                        Button("加载子频道") {
+                            Task { await store.loadChannels(guildID: guild.id) }
+                        }
+                    }
                     if let members = store.guildMembers[guild.id] {
                         if members.isEmpty {
                             Text("没有可显示的成员").foregroundStyle(.secondary)
@@ -1850,6 +1896,20 @@ struct SettingsView: View {
                 }
                 Section("会话") {
                     Toggle("显示归档会话", isOn: Binding(get: { store.showArchived }, set: { store.showArchived = $0 }))
+                }
+                Section("聊天外观") {
+                    Picker("字体大小", selection: Binding(get: { store.fontScale }, set: { store.fontScale = $0 })) {
+                        Text("小").tag(0.9)
+                        Text("标准").tag(1.0)
+                        Text("大").tag(1.15)
+                    }
+                    .pickerStyle(.segmented)
+                    Picker("聊天背景", selection: Binding(get: { store.chatBackground }, set: { store.chatBackground = $0 })) {
+                        Text("默认").tag("default")
+                        Text("纯色").tag("plain")
+                        Text("绿色").tag("green")
+                        Text("蓝色").tag("blue")
+                    }
                 }
                 Section("频道") {
                     NavigationLink("频道列表") { GuildListView(store: store) }
