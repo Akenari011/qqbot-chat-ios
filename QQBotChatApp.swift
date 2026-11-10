@@ -65,6 +65,7 @@ struct Conversation: Identifiable, Codable {
     var messages: [ChatMessage]
     var replyID: String
     var replySeq: Int
+    var pinned: Bool?
     var lastDate: Date { ISO8601DateFormatter().date(from: lastTimestamp) ?? .now }
     var isGroup: Bool { scene == "group" }
 }
@@ -385,9 +386,31 @@ final class ChatStore {
             let updated = conversations.remove(at: index)
             conversations.insert(updated, at: 0)
         } else {
-            let conversation = Conversation(id: target, scene: scene, name: name, lastText: message.summary, lastTimestamp: message.timestamp, unread: markUnread ? 1 : 0, messages: [message], replyID: replyID ?? "", replySeq: 0)
-            conversations.insert(conversation, at: 0)
+            let conversation = Conversation(id: target, scene: scene, name: name, lastText: message.summary, lastTimestamp: message.timestamp, unread: markUnread ? 1 : 0, messages: [message], replyID: replyID ?? "", replySeq: 0, pinned: nil)
+            conversations.append(conversation)
         }
+        sortConversations()
+        saveConversations()
+    }
+
+    private func sortConversations() {
+        conversations.sort {
+            let left = $0.pinned ?? false
+            let right = $1.pinned ?? false
+            if left != right { return left }
+            return $0.lastDate > $1.lastDate
+        }
+    }
+
+    func togglePin(_ id: String) {
+        guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
+        conversations[index].pinned = !(conversations[index].pinned ?? false)
+        sortConversations()
+        saveConversations()
+    }
+
+    func deleteConversation(_ id: String) {
+        conversations.removeAll { $0.id == id }
         saveConversations()
     }
 
@@ -553,7 +576,8 @@ final class ChatStore {
 
     private func loadConversations() {
         guard let data = try? Data(contentsOf: stateURL), let saved = try? JSONDecoder().decode([Conversation].self, from: data) else { return }
-        conversations = saved.sorted { $0.lastDate > $1.lastDate }
+        conversations = saved
+        sortConversations()
     }
 
     private func saveConversations() {
@@ -690,6 +714,17 @@ struct ConversationListView: View {
                                 ConversationRow(conversation: conversation)
                             }
                             .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    store.deleteConversation(conversation.id)
+                                } label: { Label("删除", systemImage: "trash") }
+                                Button {
+                                    store.togglePin(conversation.id)
+                                } label: {
+                                    Label(conversation.pinned == true ? "取消置顶" : "置顶", systemImage: "pin")
+                                }
+                                .tint(.orange)
+                            }
                         }
                     }
                     .listStyle(.plain)
@@ -733,8 +768,12 @@ struct ConversationRow: View {
                 .frame(width: 46, height: 46)
                 .background(conversation.isGroup ? Color.orange.gradient : blue.gradient, in: Circle())
             VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text(conversation.name).font(.system(size: 16, weight: .semibold)).lineLimit(1)
+                HStack(spacing: 4) {
+                    Text(conversation.name)
+                        .font(.system(size: 16, weight: conversation.unread > 0 ? .bold : .semibold)).lineLimit(1)
+                    if conversation.pinned == true {
+                        Image(systemName: "pin.fill").font(.system(size: 9)).foregroundStyle(.secondary)
+                    }
                     Spacer()
                     Text(conversation.lastDate, format: .dateTime.hour().minute())
                         .font(.system(size: 11)).foregroundStyle(.secondary)
@@ -993,8 +1032,10 @@ struct MessageRow: View {
                     }
                     .frame(maxWidth: 220)
                 }
-                Text(message.date, format: .dateTime.hour().minute())
-                    .font(.system(size: 10)).foregroundStyle(.tertiary).padding(.horizontal, 4)
+                if message.isImage || message.isVideo || message.isAudio {
+                    Text(message.date, format: .dateTime.hour().minute())
+                        .font(.system(size: 10)).foregroundStyle(.tertiary).padding(.horizontal, 4)
+                }
             }
             if !message.fromBot { Spacer(minLength: 48) }
         }
@@ -1059,11 +1100,17 @@ struct MessageRow: View {
             }
             .frame(width: 160, height: 160)
         } else {
-            Text(markdownText(message.text.isEmpty ? "[空消息]" : message.text))
-                .font(.system(size: 16))
-                .foregroundStyle(message.fromBot ? Color.white : Color.primary)
-                .padding(.horizontal, 12).padding(.vertical, 9)
-                .background(message.fromBot ? blue : Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 16))
+            VStack(alignment: .trailing, spacing: 3) {
+                Text(markdownText(message.text.isEmpty ? "[空消息]" : message.text))
+                    .font(.system(size: 16))
+                    .foregroundStyle(message.fromBot ? Color.white : Color.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text(message.date, format: .dateTime.hour().minute())
+                    .font(.system(size: 10))
+                    .foregroundStyle(message.fromBot ? Color.white.opacity(0.75) : Color.secondary)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 9)
+            .background(message.fromBot ? blue : Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 16))
         }
     }
 
