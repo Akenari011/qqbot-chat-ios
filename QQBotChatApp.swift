@@ -1416,6 +1416,7 @@ struct ChatView: View {
     @State private var reactionMessageID: String?
     @State private var showReactionUsers = false
     @State private var playingVideoURL: URL?
+    @State private var menuMessage: ChatMessage?
     @State private var showPins = false
     @State private var showKeyboardAlert = false
     @State private var keyboardText = ""
@@ -1484,7 +1485,8 @@ struct ChatView: View {
                                         showReactionUsers = true
                                         Task { await store.loadReactionUsers(conversationID: conversationID, messageID: messageID) }
                                     },
-                                    onPlayVideo: { url in playingVideoURL = url }
+                                    onPlayVideo: { url in playingVideoURL = url },
+                                    onLongPress: { target in menuMessage = target }
                                 ).id(message.id)
                             }
                         }
@@ -1547,6 +1549,46 @@ struct ChatView: View {
                 }
                 pickerItems = []
             }
+        }
+        .confirmationDialog("消息操作", isPresented: Binding(get: { menuMessage != nil }, set: { if !$0 { menuMessage = nil } }), titleVisibility: .visible, presenting: menuMessage) { message in
+            if !message.text.isEmpty {
+                Button("复制") { UIPasteboard.general.string = message.text }
+            }
+            Button("引用") { quoting = message }
+            if message.status == "failed" {
+                Button("重发") { Task { await store.retryMessage(conversationID: conversationID, messageID: message.id) } }
+            }
+            if let name = message.localImage, let image = store.image(named: name) {
+                Button("保存图片") {
+                    UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+                    store.error = "图片已保存到相册。"
+                }
+            }
+            if let name = message.videoFile, let url = store.mediaURL(named: name) {
+                Button("保存视频") {
+                    UISaveVideoAtPathToSavedPhotosAlbum(url.path, nil, nil, nil)
+                    store.error = "视频已保存到相册。"
+                }
+            }
+            if store.conversation(conversationID)?.scene == "channel" {
+                if message.fromBot {
+                    Button("编辑") { editingMessage = message; editText = message.text }
+                }
+                Button("点赞回应") { Task { await store.react(conversationID: conversationID, messageID: message.id) } }
+                Button("取消点赞") { Task { await store.removeReaction(conversationID: conversationID, messageID: message.id) } }
+                Button("置顶") { Task { await store.pinMessage(conversationID: conversationID, messageID: message.id) } }
+                Button("取消置顶") { Task { await store.unpinMessage(conversationID: conversationID, messageID: message.id) } }
+                Button("设为公告") { Task { await store.publishAnnounce(conversationID: conversationID, messageID: message.id) } }
+                Button("取消公告") { Task { await store.deleteAnnounce(conversationID: conversationID, messageID: message.id) } }
+                Button("点赞用户") {
+                    reactionMessageID = message.id
+                    showReactionUsers = true
+                    Task { await store.loadReactionUsers(conversationID: conversationID, messageID: message.id) }
+                }
+                Button("撤回") { Task { await store.recallMessage(conversationID: conversationID, messageID: message.id) } }
+            }
+            Button("删除", role: .destructive) { store.deleteMessage(conversationID: conversationID, messageID: message.id) }
+            Button("取消", role: .cancel) { menuMessage = nil }
         }
         .sheet(isPresented: Binding(get: { playingVideoURL != nil }, set: { if !$0 { playingVideoURL = nil } })) {
             if let url = playingVideoURL {
@@ -1835,6 +1877,7 @@ struct MessageRow: View {
     let onEdit: (ChatMessage) -> Void
     let onReactionUsers: (String) -> Void
     let onPlayVideo: (URL) -> Void
+    let onLongPress: (ChatMessage) -> Void
     @State private var audioPlayer: AVAudioPlayer?
     @State private var playingAudio = false
     @State private var loadedImage: UIImage?
@@ -1911,59 +1954,7 @@ struct MessageRow: View {
             if !message.fromBot { Spacer(minLength: 48) } else { botAvatar }
         }
         .frame(maxWidth: .infinity, alignment: message.fromBot ? .trailing : .leading)
-        .contextMenu {
-            if !message.text.isEmpty {
-                Button { UIPasteboard.general.string = message.text } label: { Label("复制", systemImage: "doc.on.doc") }
-            }
-            Button { onQuote(message) } label: { Label("引用", systemImage: "arrowshape.turn.up.left") }
-            if message.status == "failed" {
-                Button {
-                    Task { await store.retryMessage(conversationID: conversationID, messageID: message.id) }
-                } label: { Label("重发", systemImage: "arrow.clockwise") }
-            }
-            if let image = loadedImage {
-                Button {
-                    UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
-                    store.error = "图片已保存到相册。"
-                } label: { Label("保存图片", systemImage: "square.and.arrow.down") }
-            }
-            if let name = message.videoFile, let url = store.mediaURL(named: name) {
-                Button {
-                    UISaveVideoAtPathToSavedPhotosAlbum(url.path, nil, nil, nil)
-                    store.error = "视频已保存到相册。"
-                } label: { Label("保存视频", systemImage: "square.and.arrow.down") }
-            }
-            if store.conversation(conversationID)?.scene == "channel" {
-                if message.fromBot {
-                    Button { onEdit(message) } label: { Label("编辑", systemImage: "pencil") }
-                }
-                Button {
-                    Task { await store.react(conversationID: conversationID, messageID: message.id) }
-                } label: { Label("点赞回应", systemImage: "hand.thumbsup") }
-                Button {
-                    Task { await store.removeReaction(conversationID: conversationID, messageID: message.id) }
-                } label: { Label("取消点赞", systemImage: "hand.thumbsdown") }
-                Button {
-                    Task { await store.pinMessage(conversationID: conversationID, messageID: message.id) }
-                } label: { Label("置顶", systemImage: "pin") }
-                Button {
-                    Task { await store.unpinMessage(conversationID: conversationID, messageID: message.id) }
-                } label: { Label("取消置顶", systemImage: "pin.slash") }
-                Button {
-                    Task { await store.publishAnnounce(conversationID: conversationID, messageID: message.id) }
-                } label: { Label("设为公告", systemImage: "megaphone") }
-                Button {
-                    Task { await store.deleteAnnounce(conversationID: conversationID, messageID: message.id) }
-                } label: { Label("取消公告", systemImage: "megaphone.slash") }
-                Button { onReactionUsers(message.id) } label: { Label("点赞用户", systemImage: "person.2") }
-                Button {
-                    Task { await store.recallMessage(conversationID: conversationID, messageID: message.id) }
-                } label: { Label("撤回", systemImage: "arrow.uturn.backward") }
-            }
-            Button(role: .destructive) {
-                store.deleteMessage(conversationID: conversationID, messageID: message.id)
-            } label: { Label("删除", systemImage: "trash") }
-        }
+        .onLongPressGesture(minimumDuration: 0.35) { onLongPress(message) }
         .task(id: message.localImage) {
             guard let name = message.localImage, loadedImage == nil else { return }
             let path = store.mediaURL(named: name)?.path
