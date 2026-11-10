@@ -71,6 +71,20 @@
 - 单一机器人账号，无多账号切换。
 - 每次发送必须处于 QQ 被动回复窗口内（由用户最近一条消息触发）。
 - 单聊/群聊没有官方历史消息接口，断线期间依赖 Resume 补发；频道可拉取最近 50 条。
+- QQ 群消息事件不含群头像与成员头像 URL；群名可通过 GET /v2/groups/{openid}/info 获取，会话头像只能手动设置。
+
+## 对齐 Telegram 的方法与约束
+
+- 不 fork Telegram-iOS：该仓库无统一 LICENSE、各组件许可不同并要求公开派生代码；其 UI 与 MTProto / Postbox / AccountContext 深度耦合，使用 AsyncDisplayKit + UIKit 手写 frame 布局，与本项目 SwiftUI + iOS 26 玻璃效果不兼容。
+- 采用「读取官方源码常量 → SwiftUI 独立重写」：已落地圆角 16/8、宽度 widthFor（<=500pt 用 width-36，否则 x0.85）、渐变 0x57b2e0→0x0088ff、接收纯白、日期胶囊 13pt/22pt、双勾、过阻尼 bezier (0.380,0.700,0.125,1.000)、会话行分隔线 86pt 缩进、未读角标 20pt 等。
+- 尚未对齐：气泡尾巴（用户要求四角纯圆角）、媒体 300x380、发送 morph、自定义玻璃菜单、TabBar 三 tab、设置页资料头结构。
+
+## 开发注意事项
+
+- 用 Python 脚本改 Swift 源码时，反斜杠 n 会被写成真实换行导致字符串字面量断裂；含转义序列的改动应改用 edit 工具或先验证写入结果。
+- MessageRow 构造参数多，新增参数须同步 memberwise init 的参数顺序（带默认值的 var 排在必填 let 之后）。
+- 单个 ViewBuilder 表达式过大会触发 Swift 类型检查超时；把消息行渲染拆成独立的 @ViewBuilder func messageCell 可解决。
+
 
 ## 凭证与安全
 
