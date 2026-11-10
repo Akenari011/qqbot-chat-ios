@@ -134,7 +134,7 @@ def login(credentials: LoginInput):
     secret = os.environ.get("QQBOT_SESSION_SECRET") or os.environ.get("QQBOT_GATEWAY_KEY")
     if not username or not password or not secret:
         raise HTTPException(503, "Chat user authentication is not configured")
-    if not hmac.compare_digest(credentials.username, username) or not hmac.compare_digest(credentials.password, password):
+    if not hmac.compare_digest(credentials.username.encode(), username.encode()) or not hmac.compare_digest(credentials.password.encode(), password.encode()):
         raise HTTPException(401, "Unauthorized")
     expires = int(time.time()) + 12 * 60 * 60
     return LoginOutput(access_token=sign_session(username, expires, secret), expires_in=12 * 60 * 60)
@@ -163,7 +163,7 @@ async def send_message(message: MessageIn, authorization: str | None = Header(de
             payload = response.json() if response.content else {}
         except (httpx.HTTPError, ValueError):
             raise HTTPException(502, "QQ message send failed")
-        if response.is_error:
+        if response.is_error or payload.get("err_code", payload.get("code", 0)) or not payload.get("id", payload.get("message_id")):
             raise HTTPException(502, "QQ message send failed")
         message_id = str(payload.get("id", payload.get("message_id", "")))
         if message_id:

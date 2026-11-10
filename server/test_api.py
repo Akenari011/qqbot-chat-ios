@@ -60,6 +60,14 @@ class GatewayApiTests(unittest.TestCase):
                 self.assertEqual(response.status_code, 200, response.text)
                 self.assertTrue(FakeAsyncClient.calls[0][0].endswith(expected))
 
+    def test_business_error_is_not_reported_as_sent(self):
+        main._token = "cached-token"
+        main._token_expires = 9999999999
+        FakeAsyncClient.responses = [FakeResponse({"err_code": 40034005})]
+        with patch.object(main.httpx, "AsyncClient", FakeAsyncClient):
+            response = self.client.post("/api/qqbot/messages", headers=self.user_headers, json={"text": "hello"})
+        self.assertEqual(response.status_code, 502)
+
     def test_rejects_missing_gateway_auth(self):
         with patch.object(main.httpx, "AsyncClient", FakeAsyncClient): response = self.client.post("/api/qqbot/messages", json={"text": "hello"})
         self.assertEqual(response.status_code, 401); self.assertEqual(FakeAsyncClient.calls, [])
