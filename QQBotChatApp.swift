@@ -1440,6 +1440,7 @@ struct ChatView: View {
     @State private var showReactionUsers = false
     @State private var playingVideoURL: URL?
     @State private var menuMessage: ChatMessage?
+    @State private var scrollTick = 0
     @State private var showPins = false
     @State private var showKeyboardAlert = false
     @State private var keyboardText = ""
@@ -1521,6 +1522,9 @@ struct ChatView: View {
                     if let target { withAnimation { proxy.scrollTo(target, anchor: .center) }; jumpTarget = nil }
                 }
                 .onChange(of: conversation?.messages.count) { _, _ in
+                    if let last = conversation?.messages.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
+                }
+                .onChange(of: scrollTick) { _, _ in
                     if let last = conversation?.messages.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
                 }
                 .onAppear {
@@ -1786,7 +1790,7 @@ struct ChatView: View {
                         .foregroundStyle(recording ? Color.red : blue)
                 }
                 .accessibilityLabel(recording ? "停止录音并发送" : "录制语音")
-                ComposerInput(store: store, conversationID: conversationID, quoting: quoting) { text, quote in
+                ComposerInput(store: store, conversationID: conversationID, quoting: quoting, onFocus: { scrollTick += 1 }) { text, quote in
                     quoting = nil
                     store.drafts[conversationID] = ""
                     UserDefaults.standard.set(store.drafts, forKey: "drafts")
@@ -1805,7 +1809,9 @@ struct ComposerInput: View {
     let conversationID: String
     let quoting: ChatMessage?
     let onSend: (String, ChatMessage?) -> Void
+    let onFocus: () -> Void
     @State private var text = ""
+    @FocusState private var isFocused: Bool
     @State private var showEmoji = false
     @State private var showMentions = false
     private let emojis = ["😀","😂","🥰","😎","🤔","😭","👍","👎","❤️","🎉","🔥","🌹","🍀","☀️","🌙","⭐️","✅","❌","🤝","🙏","😴","🤣","😅","🥳","😇","🤩","😋","🤗"]
@@ -1839,6 +1845,7 @@ struct ComposerInput: View {
                     .accessibilityLabel("提及成员")
                 }
                 TextField("消息", text: $text, axis: .vertical).lineLimit(1...5)
+                .focused($isFocused)
                 .padding(.horizontal, 12).padding(.vertical, 9)
                 .background(Color(uiColor: .secondarySystemBackground), in: Capsule())
             Button {
@@ -1881,6 +1888,9 @@ struct ComposerInput: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("完成") { showMentions = false } } }
             }
+        }
+        .onChange(of: isFocused) { _, value in
+            if value { onFocus() }
         }
         .onAppear { text = store.drafts[conversationID] ?? "" }
         .onDisappear {
