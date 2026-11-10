@@ -123,6 +123,7 @@ final class ChatStore {
     var guilds: [GuildInfo] = []
     var guildMembers: [String: [String]] = [:]
     var schedules: [String] = []
+    var pins: [String] = []
     var appearance: String = UserDefaults.standard.string(forKey: "appearance") ?? "system" {
         didSet { UserDefaults.standard.set(appearance, forKey: "appearance") }
     }
@@ -260,6 +261,104 @@ final class ChatStore {
         }
     }
 
+    func publishAnnounce(conversationID: String, messageID: String) async {
+        guard conversation(conversationID)?.scene == "channel" else {
+            error = "公告仅支持频道消息。"
+            return
+        }
+        do {
+            if guilds.isEmpty { await loadGuilds() }
+            for guild in guilds {
+                let raw = try await apiAny("/guilds/" + guild.id + "/channels")
+                if let list = raw as? [[String: Any]], list.contains(where: { ($0["id"] as? String) == conversationID }) {
+                    _ = try await apiAny("/guilds/" + guild.id + "/announces", method: "POST", body: ["channel_id": conversationID, "message_id": messageID])
+                    error = "已发布为频道公告。"
+                    return
+                }
+            }
+            error = "未找到该频道所属服务器。"
+        } catch {
+            self.error = "公告发布失败，可能需要频道权限。"
+        }
+    }
+
+    func sendKeyboardMessage(_ text: String, to conversationID: String) async {
+        guard conversation(conversationID)?.scene == "channel" else {
+            error = "按钮消息仅支持频道。"
+            return
+        }
+        let keyboard: [String: Any] = [
+            "content": [
+                "rows": [[
+                    "buttons": [[
+                        "id": "1",
+                        "render_data": ["label": "确认", "visited_label": "已确认", "style": 1],
+                        "action": ["type": 2, "permission": ["type": 2], "data": "confirm", "unsupported_tip": "当前客户端不支持"]
+                    ]]
+                ]]
+            ]
+        ]
+        let body: [String: Any] = ["content": text, "keyboard": keyboard]
+        let cid = conversationID.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? conversationID
+        do {
+            let result = try await apiAny("/channels/" + cid + "/messages", method: "POST", body: body)
+            if let dict = result as? [String: Any], let messageID = dict["id"] as? String,
+               let index = conversations.firstIndex(where: { $0.id == conversationID }) {
+                let message = ChatMessage(id: messageID, text: text, timestamp: ISO8601DateFormatter().string(from: .now), fromBot: true, authorName: "QQ 机器人", buttons: ["确认"], status: "sent")
+                conversations[index].messages.append(message)
+                conversations[index].lastText = text
+                conversations[index].lastTimestamp = message.timestamp
+                saveConversations()
+            }
+            error = nil
+        } catch {
+            self.error = "按钮消息发送失败，可能需要频道权限。"
+        }
+    }
+
+    func removeReaction(conversationID: String, messageID: String, emojiID: String = "128077") async {
+        guard conversation(conversationID)?.scene == "channel" else {
+            error = "表情回应仅支持频道消息。"
+            return
+        }
+        let cid = conversationID.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? conversationID
+        do {
+            _ = try await apiAny("/channels/" + cid + "/messages/" + messageID + "/reactions/1/" + emojiID, method: "DELETE")
+            error = "已取消表情回应。"
+        } catch {
+            self.error = "取消回应失败，可能需要频道权限。"
+        }
+    }
+
+    func unpinMessage(conversationID: String, messageID: String) async {
+        guard conversation(conversationID)?.scene == "channel" else {
+            error = "置顶仅支持频道消息。"
+            return
+        }
+        let cid = conversationID.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? conversationID
+        do {
+            _ = try await apiAny("/channels/" + cid + "/pins/" + messageID, method: "DELETE")
+            error = "已取消置顶。"
+        } catch {
+            self.error = "取消置顶失败，可能需要频道权限。"
+        }
+    }
+
+    func loadPins(conversationID: String) async {
+        guard conversation(conversationID)?.scene == "channel" else { return }
+        let cid = conversationID.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? conversationID
+        do {
+            let raw = try await apiAny("/channels/" + cid + "/pins")
+            if let dict = raw as? [String: Any], let list = dict["message_ids"] as? [String] {
+                pins = list
+            } else if let list = raw as? [String] {
+                pins = list
+            }
+        } catch {
+            self.error = "置顶列表获取失败。"
+        }
+    }
+
     func loadSchedules(channelID: String) async {
         let cid = channelID.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? channelID
         do {
@@ -358,10 +457,14 @@ final class ChatStore {
         return result
     }
 
-    private func apiAny(_ path: String, method: String = "GET") async throws -> Any {
+    private func apiAny(_ path: String, method: String = "GET", body: [String: Any]? = nil) async throws -> Any {
         var request = URLRequest(url: URL(string: "https://api.bot.qq.com" + path)!)
         request.httpMethod = method
         request.setValue("QQBot " + token, forHTTPHeaderField: "Authorization")
+        if let body {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw URLError(.badServerResponse)
@@ -1089,6 +1192,9 @@ struct ChatView: View {
     @State private var showEmoji = false
     @State private var showFileImporter = false
     @State private var showSchedules = false
+    @State private var showPins = false
+    @State private var showKeyboardAlert = false
+    @State private var keyboardText = ""
     private let emojis = ["😀","😂","🥰","😎","🤔","😭","👍","👎","❤️","🎉","🔥","🌹","🍀","☀️","🌙","⭐️","✅","❌","🤝","🙏","😴","🤣","😅","🥳","😇","🤩","😋","🤗"]
     private let blue = Color(red: 0.20, green: 0.55, blue: 0.88)
 
@@ -1145,8 +1251,12 @@ struct ChatView: View {
             }
             if conversation?.scene == "channel" {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button { showSchedules = true } label: { Image(systemName: "calendar") }
-                        .accessibilityLabel("频道日程")
+                    Menu {
+                        Button { showSchedules = true } label: { Label("频道日程", systemImage: "calendar") }
+                        Button { showPins = true; Task { await store.loadPins(conversationID: conversationID) } } label: { Label("置顶消息", systemImage: "pin") }
+                        Button { keyboardText = ""; showKeyboardAlert = true } label: { Label("发送按钮消息", systemImage: "keyboard") }
+                    } label: { Image(systemName: "ellipsis.circle") }
+                    .accessibilityLabel("频道工具")
                 }
             }
         }
@@ -1168,6 +1278,19 @@ struct ChatView: View {
                     await store.sendImage(data, to: conversationID)
                 }
                 pickerItem = nil
+            }
+        }
+        .alert("发送带按钮的消息", isPresented: $showKeyboardAlert) {
+            TextField("消息内容", text: $keyboardText)
+            Button("发送") { Task { await store.sendKeyboardMessage(keyboardText, to: conversationID) } }
+            Button("取消", role: .cancel) {}
+        }
+        .sheet(isPresented: $showPins) {
+            NavigationStack {
+                List(store.pins, id: \.self) { id in Text(id).font(.system(size: 12)).lineLimit(1) }
+                    .navigationTitle("置顶消息")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("完成") { showPins = false } } }
             }
         }
         .sheet(isPresented: $showSchedules) {
@@ -1415,8 +1538,17 @@ struct MessageRow: View {
                     Task { await store.react(conversationID: conversationID, messageID: message.id) }
                 } label: { Label("点赞回应", systemImage: "hand.thumbsup") }
                 Button {
+                    Task { await store.removeReaction(conversationID: conversationID, messageID: message.id) }
+                } label: { Label("取消点赞", systemImage: "hand.thumbsdown") }
+                Button {
                     Task { await store.pinMessage(conversationID: conversationID, messageID: message.id) }
                 } label: { Label("置顶", systemImage: "pin") }
+                Button {
+                    Task { await store.unpinMessage(conversationID: conversationID, messageID: message.id) }
+                } label: { Label("取消置顶", systemImage: "pin.slash") }
+                Button {
+                    Task { await store.publishAnnounce(conversationID: conversationID, messageID: message.id) }
+                } label: { Label("设为公告", systemImage: "megaphone") }
                 Button {
                     Task { await store.recallMessage(conversationID: conversationID, messageID: message.id) }
                 } label: { Label("撤回", systemImage: "arrow.uturn.backward") }
