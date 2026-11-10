@@ -456,6 +456,12 @@ final class ChatStore {
         await send(to: id, text: "", mediaFile: name, mediaType: "video", quote: quote)
     }
 
+    func sendAudio(_ data: Data, to id: String, quote: ChatMessage? = nil) async {
+        guard data.count <= 10 * 1024 * 1024 else { error = "语音文件过大。"; return }
+        guard let name = saveMedia(data, ext: "m4a") else { error = "语音保存失败。"; return }
+        await send(to: id, text: "", mediaFile: name, mediaType: "audio", quote: quote)
+    }
+
     private func send(to id: String, text: String, mediaFile: String?, mediaType: String?, quote: ChatMessage?) async {
         guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
         guard !conversations[index].replyID.isEmpty else { error = "请先从 QQ 给机器人发送一条消息，再回复。"; return }
@@ -467,15 +473,24 @@ final class ChatStore {
         if let quote { body["message_reference"] = ["message_id": quote.id] }
         if let mediaFile, let mediaType {
             guard let fileURL = mediaURL(named: mediaFile), let data = try? Data(contentsOf: fileURL) else { error = "媒体文件读取失败。"; return }
-            let type = mediaType == "video" ? 2 : 1
-            let ext = mediaType == "video" ? "mp4" : "jpg"
+            let type: Int
+            let ext: String
+            switch mediaType {
+            case "video": type = 2; ext = "mp4"
+            case "audio": type = 3; ext = "m4a"
+            default: type = 1; ext = "jpg"
+            }
             do {
                 let info = try await uploadMedia(data, fileType: type, fileName: "media." + ext, target: id, scene: conversation.scene)
                 body["msg_type"] = 7
                 body["content"] = ""
                 body["media"] = ["file_info": info]
             } catch {
-                self.error = mediaType == "video" ? "视频上传失败，请确认小于 20MB 且机器人有富媒体权限。" : "图片上传失败，请确认小于 10MB 且机器人有富媒体权限。"
+                switch mediaType {
+                case "video": self.error = "视频上传失败，请确认小于 20MB 且机器人有富媒体权限。"
+                case "audio": self.error = "语音上传失败，QQ 语音消息可能只接受 silk 编码。"
+                default: self.error = "图片上传失败，请确认小于 10MB 且机器人有富媒体权限。"
+                }
                 return
             }
         } else {
@@ -493,6 +508,7 @@ final class ChatStore {
                     fromBot: true, authorName: "QQ 机器人",
                     localImage: mediaType == "image" ? mediaFile : nil,
                     videoFile: mediaType == "video" ? mediaFile : nil,
+                    audioFile: mediaType == "audio" ? mediaFile : nil,
                     quotedText: quote?.summary
                 )
                 conversations[current].messages.append(message)
@@ -733,6 +749,8 @@ struct ChatView: View {
     @State private var pickerItem: PhotosPickerItem?
     @State private var videoItem: PhotosPickerItem?
     @State private var quoting: ChatMessage?
+    @State private var recorder: AVAudioRecorder?
+    @State private var recording = false
     private let blue = Color(red: 0.20, green: 0.55, blue: 0.88)
 
     private var conversation: Conversation? { store.conversation(conversationID) }
@@ -785,7 +803,10 @@ struct ChatView: View {
             store.activeConversationID = conversationID
             store.markRead(conversationID)
         }
-        .onDisappear { store.activeConversationID = nil }
+        .onDisappear {
+            store.activeConversationID = nil
+            if recording { recorder?.stop(); recorder = nil; recording = false }
+        }
         .onChange(of: pickerItem) { _, item in
             guard let item else { return }
             Task {
@@ -804,6 +825,40 @@ struct ChatView: View {
                 videoItem = nil
             }
         }
+    }
+
+    private func toggleRecording() {
+        if recording { stopRecording() } else { startRecording() }
+    }
+
+    private func startRecording() {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("rec-\(UUID().uuidString).m4a")
+        let settings: [String: Any] = [
+            AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+            AVSampleRateKey: 16000,
+            AVNumberOfChannelsKey: 1,
+            AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue
+        ]
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
+            try AVAudioSession.sharedInstance().setActive(true)
+            let r = try AVAudioRecorder(url: url, settings: settings)
+            r.record()
+            recorder = r
+            recording = true
+        } catch {
+            store.error = "无法开始录音，请检查麦克风权限。"
+        }
+    }
+
+    private func stopRecording() {
+        guard let r = recorder else { return }
+        r.stop()
+        recorder = nil
+        recording = false
+        let url = r.url
+        guard let data = try? Data(contentsOf: url), !data.isEmpty else { return }
+        Task { await store.sendAudio(data, to: conversationID) }
     }
 
     private var composer: some View {
@@ -833,6 +888,12 @@ struct ChatView: View {
                     Image(systemName: "video").font(.system(size: 20)).foregroundStyle(blue)
                 }
                 .accessibilityLabel("发送视频")
+                Button { toggleRecording() } label: {
+                    Image(systemName: recording ? "stop.circle.fill" : "mic.fill")
+                        .font(.system(size: 20))
+                        .foregroundStyle(recording ? Color.red : blue)
+                }
+                .accessibilityLabel(recording ? "停止录音并发送" : "录制语音")
                 TextField("消息", text: $draft, axis: .vertical).lineLimit(1...5)
                     .padding(.horizontal, 12).padding(.vertical, 9)
                     .background(Color(uiColor: .secondarySystemBackground), in: Capsule())
