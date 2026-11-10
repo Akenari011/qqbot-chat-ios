@@ -1257,7 +1257,12 @@ struct RootView: View {
     var body: some View {
         Group {
             if store.isLoggedIn {
-                ConversationListView(store: store)
+                TabView {
+                    ConversationListView(store: store)
+                        .tabItem { Label("聊天", systemImage: "bubble.left.and.bubble.right.fill") }
+                    SettingsView(store: store)
+                        .tabItem { Label("设置", systemImage: "gearshape.fill") }
+                }
             } else {
                 LoginView(store: store)
             }
