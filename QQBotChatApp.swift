@@ -64,6 +64,11 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     var date: Date { ISO8601DateFormatter().date(from: timestamp) ?? .now }
 }
 
+struct GuildInfo: Identifiable {
+    let id: String
+    let name: String
+}
+
 struct Conversation: Identifiable, Codable {
     var id: String
     var scene: String
@@ -115,6 +120,8 @@ final class ChatStore {
     var drafts: [String: String] = UserDefaults.standard.dictionary(forKey: "drafts") as? [String: String] ?? [:]
     var botName = ""
     var botID = ""
+    var guilds: [GuildInfo] = []
+    var guildMembers: [String: [String]] = [:]
     var appearance: String = UserDefaults.standard.string(forKey: "appearance") ?? "system" {
         didSet { UserDefaults.standard.set(appearance, forKey: "appearance") }
     }
@@ -187,6 +194,60 @@ final class ChatStore {
         }
     }
 
+    func loadGuilds() async {
+        do {
+            let raw = try await apiAny("/users/@me/guilds")
+            guard let list = raw as? [[String: Any]] else { return }
+            guilds = list.compactMap { item in
+                guard let id = item["id"] as? String, let name = item["name"] as? String else { return nil }
+                return GuildInfo(id: id, name: name)
+            }
+        } catch {
+            self.error = "频道列表获取失败，机器人可能未加入任何频道。"
+        }
+    }
+
+    func loadMembers(guildID: String) async {
+        do {
+            let encoded = guildID.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? guildID
+            let raw = try await apiAny("/guilds/" + encoded + "/members?limit=100")
+            guard let list = raw as? [[String: Any]] else { return }
+            guildMembers[guildID] = list.compactMap { item in
+                (item["username"] as? String) ?? (item["nick"] as? String)
+            }
+        } catch {
+            self.error = "成员列表获取失败，需要频道成员查看权限。"
+        }
+    }
+
+    func react(conversationID: String, messageID: String, emojiID: String = "128077") async {
+        guard conversation(conversationID)?.scene == "channel" else {
+            error = "表情回应仅支持频道消息。"
+            return
+        }
+        let cid = conversationID.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? conversationID
+        do {
+            _ = try await apiAny("/channels/" + cid + "/messages/" + messageID + "/reactions/1/" + emojiID, method: "PUT")
+            error = nil
+        } catch {
+            self.error = "表情回应失败，可能需要频道权限。"
+        }
+    }
+
+    func pinMessage(conversationID: String, messageID: String) async {
+        guard conversation(conversationID)?.scene == "channel" else {
+            error = "置顶仅支持频道消息。"
+            return
+        }
+        let cid = conversationID.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? conversationID
+        do {
+            _ = try await apiAny("/channels/" + cid + "/pins/" + messageID, method: "PUT")
+            error = "已置顶该消息。"
+        } catch {
+            self.error = "置顶失败，可能需要频道权限。"
+        }
+    }
+
     func loadProfile() async {
         do {
             let me = try await api("/users/@me")
@@ -254,6 +315,17 @@ final class ChatStore {
             throw URLError(.badServerResponse)
         }
         return result
+    }
+
+    private func apiAny(_ path: String, method: String = "GET") async throws -> Any {
+        var request = URLRequest(url: URL(string: "https://api.bot.qq.com" + path)!)
+        request.httpMethod = method
+        request.setValue("QQBot " + token, forHTTPHeaderField: "Authorization")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        return try JSONSerialization.jsonObject(with: data)
     }
 
     private func packet(_ value: [String: Any]) async throws {
@@ -1278,6 +1350,12 @@ struct MessageRow: View {
             }
             if store.conversation(conversationID)?.scene == "channel" {
                 Button {
+                    Task { await store.react(conversationID: conversationID, messageID: message.id) }
+                } label: { Label("点赞回应", systemImage: "hand.thumbsup") }
+                Button {
+                    Task { await store.pinMessage(conversationID: conversationID, messageID: message.id) }
+                } label: { Label("置顶", systemImage: "pin") }
+                Button {
                     Task { await store.recallMessage(conversationID: conversationID, messageID: message.id) }
                 } label: { Label("撤回", systemImage: "arrow.uturn.backward") }
             }
@@ -1413,6 +1491,36 @@ struct MessageRow: View {
     }
 }
 
+struct GuildListView: View {
+    let store: ChatStore
+
+    var body: some View {
+        List {
+            if store.guilds.isEmpty {
+                Text("机器人未加入频道，或没有频道列表权限。").foregroundStyle(.secondary)
+            }
+            ForEach(store.guilds) { guild in
+                Section(guild.name) {
+                    if let members = store.guildMembers[guild.id] {
+                        if members.isEmpty {
+                            Text("没有可显示的成员").foregroundStyle(.secondary)
+                        } else {
+                            ForEach(members, id: \.self) { name in Text(name) }
+                        }
+                    } else {
+                        Button("加载成员列表") {
+                            Task { await store.loadMembers(guildID: guild.id) }
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle("频道")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await store.loadGuilds() }
+    }
+}
+
 struct SettingsView: View {
     let store: ChatStore
     @Environment(\.dismiss) private var dismiss
@@ -1435,6 +1543,9 @@ struct SettingsView: View {
                         Text("深色").tag("dark")
                     }
                     .pickerStyle(.segmented)
+                }
+                Section("频道") {
+                    NavigationLink("频道列表") { GuildListView(store: store) }
                 }
                 Section("数据") {
                     Button("清空全部聊天记录", role: .destructive) { confirmClear = true }
