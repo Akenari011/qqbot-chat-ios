@@ -1,4 +1,5 @@
 import os
+import time
 import unittest
 from unittest.mock import patch
 
@@ -24,10 +25,13 @@ class FakeAsyncClient:
         return self.responses.pop(0)
 
 class GatewayApiTests(unittest.TestCase):
+    user_headers = {"Authorization": "Basic dGVzdGVyOnRlc3QtcGFzc3dvcmQ="}
+
     def setUp(self):
         self.client = TestClient(main.app)
-        self.env = patch.dict(os.environ, {"QQBOT_GATEWAY_KEY": "test-gateway-key", "QQBOT_APP_ID": "test-app", "QQBOT_CLIENT_SECRET": "test-secret", "QQBOT_CHAT_SCENE": "c2c", "QQBOT_CHAT_TARGET_ID": "openid-1", "QQBOT_DB_PATH": "/tmp/qqbot-api-test.sqlite3"})
+        self.env = patch.dict(os.environ, {"QQBOT_GATEWAY_KEY": "test-gateway-key", "QQBOT_CHAT_USERNAME": "tester", "QQBOT_CHAT_PASSWORD": "test-password", "QQBOT_APP_ID": "test-app", "QQBOT_CLIENT_SECRET": "test-secret", "QQBOT_CHAT_SCENE": "c2c", "QQBOT_CHAT_TARGET_ID": "openid-1", "QQBOT_DB_PATH": "/tmp/qqbot-api-test.sqlite3"})
         self.env.start(); self.addCleanup(self.env.stop)
+        self.user_headers = {"Authorization": "Bearer " + main.sign_session("tester", int(time.time()) + 3600, os.environ["QQBOT_GATEWAY_KEY"])}
         main._token = ""; main._token_expires = 0
         main.init_db()
         with main.sqlite3.connect(main.db_path()) as db: db.execute("DELETE FROM messages")
@@ -36,7 +40,7 @@ class GatewayApiTests(unittest.TestCase):
 
     def test_send_uses_fixed_target_and_bot_token(self):
         with patch.object(main.httpx, "AsyncClient", FakeAsyncClient):
-            response = self.client.post("/api/qqbot/messages", headers={"Authorization": "Bearer test-gateway-key"}, json={"text": "hello"})
+            response = self.client.post("/api/qqbot/messages", headers=self.user_headers, json={"text": "hello"})
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["messageID"], "msg-123")
         self.assertEqual(FakeAsyncClient.calls[0][0], "https://api.bot.qq.com/app/getAppAccessToken")
@@ -52,7 +56,7 @@ class GatewayApiTests(unittest.TestCase):
                 with patch.dict(os.environ, {"QQBOT_CHAT_SCENE": scene, "QQBOT_CHAT_TARGET_ID": target}):
                     main._token = "cached-token"; main._token_expires = 9999999999
                     FakeAsyncClient.calls = []; FakeAsyncClient.responses = [FakeResponse({"id": "msg-456"})]
-                    with patch.object(main.httpx, "AsyncClient", FakeAsyncClient): response = self.client.post("/api/qqbot/messages", headers={"Authorization": "Bearer test-gateway-key"}, json={"text": "hello"})
+                    with patch.object(main.httpx, "AsyncClient", FakeAsyncClient): response = self.client.post("/api/qqbot/messages", headers=self.user_headers, json={"text": "hello"})
                 self.assertEqual(response.status_code, 200, response.text)
                 self.assertTrue(FakeAsyncClient.calls[0][0].endswith(expected))
 

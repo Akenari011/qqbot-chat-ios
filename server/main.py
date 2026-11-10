@@ -1,3 +1,6 @@
+import base64
+import hashlib
+import hmac
 import os
 import sqlite3
 import time
@@ -11,6 +14,15 @@ from pydantic import BaseModel, Field
 
 app = FastAPI(title="QQBot Chat Gateway")
 API = "https://api.bot.qq.com"
+
+class LoginInput(BaseModel):
+    username: str = Field(min_length=1, max_length=128)
+    password: str = Field(min_length=1, max_length=1024)
+
+class LoginOutput(BaseModel):
+    access_token: str
+    token_type: str = "Bearer"
+    expires_in: int
 
 class MessageIn(BaseModel):
     text: str = Field(min_length=1, max_length=2000)
@@ -76,11 +88,37 @@ async def access_token(client: httpx.AsyncClient) -> str:
     _token_expires = time.time() + int(payload.get("expires_in", 7200))
     return _token
 
-def require_gateway(authorization: str | None) -> None:
-    gateway_key = os.environ.get("QQBOT_GATEWAY_KEY")
-    if not gateway_key:
+def gateway_key() -> str:
+    key = os.environ.get("QQBOT_GATEWAY_KEY")
+    if not key:
         raise HTTPException(503, "Gateway authentication is not configured")
-    if authorization != f"Bearer {gateway_key}":
+    return key
+
+def require_gateway(authorization: str | None) -> None:
+    key = gateway_key()
+    if not hmac.compare_digest(authorization or "", f"Bearer {key}"):
+        raise HTTPException(401, "Unauthorized")
+
+def sign_session(username: str, expires: int, secret: str) -> str:
+    payload = base64.urlsafe_b64encode(f"{username}:{expires}".encode()).decode().rstrip("=")
+    signature = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
+    return f"{payload}.{signature}"
+
+def require_chat_user(authorization: str | None) -> None:
+    username = os.environ.get("QQBOT_CHAT_USERNAME")
+    secret = os.environ.get("QQBOT_SESSION_SECRET") or os.environ.get("QQBOT_GATEWAY_KEY")
+    if not username or not secret:
+        raise HTTPException(503, "Chat user authentication is not configured")
+    try:
+        scheme, token = (authorization or "").split(" ", 1)
+        payload, signature = token.split(".", 1)
+        decoded = base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)).decode()
+        token_user, token_expires = decoded.rsplit(":", 1)
+        expected = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
+        valid = scheme.lower() == "bearer" and hmac.compare_digest(signature, expected) and hmac.compare_digest(token_user, username) and int(token_expires) >= int(time.time())
+    except (ValueError, UnicodeDecodeError):
+        valid = False
+    if not valid:
         raise HTTPException(401, "Unauthorized")
 
 def insert_message(message: IncomingMessage) -> None:
@@ -89,14 +127,26 @@ def insert_message(message: IncomingMessage) -> None:
         db.execute("INSERT OR IGNORE INTO messages VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (message.message_id, message.scene, message.target_id, message.author_id, message.author_name, message.content, message.timestamp, int(message.from_bot)))
         db.commit()
 
+@app.post("/api/qqbot/login", response_model=LoginOutput)
+def login(credentials: LoginInput):
+    username = os.environ.get("QQBOT_CHAT_USERNAME")
+    password = os.environ.get("QQBOT_CHAT_PASSWORD")
+    secret = os.environ.get("QQBOT_SESSION_SECRET") or os.environ.get("QQBOT_GATEWAY_KEY")
+    if not username or not password or not secret:
+        raise HTTPException(503, "Chat user authentication is not configured")
+    if not hmac.compare_digest(credentials.username, username) or not hmac.compare_digest(credentials.password, password):
+        raise HTTPException(401, "Unauthorized")
+    expires = int(time.time()) + 12 * 60 * 60
+    return LoginOutput(access_token=sign_session(username, expires, secret), expires_in=12 * 60 * 60)
+
 @app.get("/api/qqbot/config", response_model=ChatConfig)
 def get_config(authorization: str | None = Header(default=None)):
-    require_gateway(authorization)
+    require_chat_user(authorization)
     return chat_config()
 
 @app.post("/api/qqbot/messages", response_model=MessageOut)
 async def send_message(message: MessageIn, authorization: str | None = Header(default=None)):
-    require_gateway(authorization)
+    require_chat_user(authorization)
     config = chat_config()
     safe_id = quote(config.target_id, safe="")
     if config.scene == "c2c":
@@ -131,7 +181,7 @@ def store_incoming(messages: IncomingList, authorization: str | None = Header(de
 
 @app.get("/api/qqbot/messages", response_model=IncomingList)
 def list_messages(authorization: str | None = Header(default=None)):
-    require_gateway(authorization)
+    require_chat_user(authorization)
     config = chat_config()
     init_db()
     with sqlite3.connect(db_path()) as db:

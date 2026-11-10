@@ -14,20 +14,20 @@
 - 服务端从 `QQBOT_CHAT_SCENE` 和 `QQBOT_CHAT_TARGET_ID` 读取固定会话，支持 c2c、group、channel。使用 QQ 官方 API 统一域名 `https://api.bot.qq.com` 与各场景文档路径发送。
 - `server/event_bridge.py` 使用腾讯官方 BotPy SDK 连接 QQ WebSocket，接收单聊、群聊和频道消息事件，只保存配置的目标会话。SQLite 存储去重消息；机器人出站消息明确标记为机器人。
 - AppID、AppSecret 与 QQ access_token 只在服务端环境。QQ 官方要求 access_token 不得用于客户端。`server/.env.example` 仅包含占位符。
-- 当前网关 Bearer key 仅适合私有开发原型；公开发布前需改为用户会话认证，不能静态嵌进 App。内网收件端点应只允许事件桥访问。
+- 客户端运行时填写 HTTPS 服务器地址与聊天账号密码，通过登录接口获取 12 小时签名令牌；Keychain 只保存令牌。内部事件桥独立使用 QQBOT_GATEWAY_KEY。当前只支持单一配置账号，不是多租户认证系统。
 
 ## 部署与测试
 
 服务端变量示例见 `server/.env.example`。设置这些服务端变量后运行 FastAPI：`uvicorn main:app --app-dir server --host 127.0.0.1 --port 8080`；事件桥使用同一组机器人和目标配置，并设置 `QQBOT_INTERNAL_INGEST_URL` 指向受保护的内部收件端点，启动命令为 `python server/event_bridge.py`。部署前需为 iOS 配置网关 URL 与用户认证机制。
 
-GitHub Actions 配置在 `.github/workflows/ci.yml`：Ubuntu runner 安装依赖并执行网关/事件桥测试；macOS runner 解析 Swift 源码。此目录尚未连接 GitHub remote，Actions 未触发；已加入最小 Xcode 工程与共享 scheme；macOS GitHub Actions 将执行无签名 iOS Simulator 编译。本地无 Swift/Xcode，且目录没有 Git remote，因此 CI 构建结果待 push 后验证。
+GitHub Actions 在 Ubuntu 执行服务端测试、在 macOS 执行无签名 iOS Simulator 编译；公开仓库已连接，上一版编译及测试通过，登录改造待新一轮 CI 验证。
 
-本地 `python -m pytest -q server`：12 项测试通过，覆盖固定会话路由、鉴权、Token、消息存储去重与 SDK 事件映射。全部使用模拟网络响应，未真实调用 QQ API。
+当前 16 项本地测试通过。2026-11-10 已用用户授权的凭证真实验证 QQ 鉴权、WebSocket READY、单聊事件接收及被动回复发送成功；测试凭证、消息内容和 OpenID 未写入仓库。该实测使用临时协议探针，并非手机 App 全链路验收。
 
 ## 尚未完成
 
-1. 需要用获授权 QQ 机器人配置验证 WebSocket 登录、事件权限及真实收发。
-2. 当前环境无 Swift/Xcode，也没有 Xcode 工程，无法构建或运行 iOS 模拟器。
-3. 上线前需完成每用户认证、目标授权、HTTPS、限流和审计。
+1. 部署长期运行的网关和事件桥，以手机或模拟器登录并完成全链路收发验证。
+2. 目前只支持一个服务端配置的会话和账号，尚无会话列表、多用户授权、附件发送。
+3. 生产部署需要 HTTPS、登录限流和审计；12 小时签名令牌通过轮换会话签名密钥整体失效，尚无单个令牌撤销机制。
 
 官方资料：[QQ 消息收发概述](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/overview.html) · [QQ access_token](https://bot.q.qq.com/wiki/develop/api-v2/dev-prepare/access-token.html) · [BotPy SDK](https://github.com/tencent-connect/botpy) · [Telegram iOS README](https://github.com/TelegramMessenger/Telegram-iOS/blob/master/README.md) · [Telegram API Terms](https://core.telegram.org/api/terms)

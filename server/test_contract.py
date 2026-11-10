@@ -12,7 +12,9 @@ class GatewayContractTests(unittest.TestCase):
 
     def test_gateway_authentication_required(self):
         self.assertIn('@app.post("/api/qqbot/messages"', SOURCE)
-        self.assertIn('authorization != f"Bearer {gateway_key}"', SOURCE)
+        self.assertIn('hmac.compare_digest(authorization or "", f"Bearer {key}")', SOURCE)
+        self.assertIn('require_chat_user(authorization)', SOURCE)
+        self.assertIn('sign_session(username, expires, secret)', SOURCE)
         self.assertIn('QQBOT_CLIENT_SECRET', SOURCE)
 
     def test_documented_scene_paths(self):
