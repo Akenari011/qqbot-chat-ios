@@ -1962,15 +1962,17 @@ struct ComposerInput: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 Button { showEmoji.toggle() } label: {
                     Image(systemName: showEmoji ? "face.smiling.fill" : "face.smiling")
                         .font(.system(size: 20)).foregroundStyle(blue)
+                        .frame(width: 40, height: 40)
                 }
                 .accessibilityLabel("表情")
                 if store.conversation(conversationID)?.scene == "group" {
                     Button { showMentions = true } label: {
                         Image(systemName: "at").font(.system(size: 20)).foregroundStyle(blue)
+                            .frame(width: 40, height: 40)
                     }
                     .accessibilityLabel("提及成员")
                 }
@@ -1985,10 +1987,10 @@ struct ComposerInput: View {
                 onSend(value, quote)
             } label: {
                 if store.sendingConversationID == conversationID {
-                    ProgressView().frame(width: 34, height: 34)
+                    ProgressView().frame(width: 40, height: 40)
                 } else {
                     Image(systemName: "arrow.up").font(.system(size: 16, weight: .bold)).foregroundStyle(.white)
-                        .frame(width: 34, height: 34).background(blue, in: Circle())
+                        .frame(width: 40, height: 40).background(blue, in: Circle())
                 }
             }
             .disabled(store.sendingConversationID != nil || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
