@@ -1533,7 +1533,6 @@ struct ChatView: View {
     @State private var scrollTick = 0
     @State private var renderLimit = 100
     @State private var showScrollButton = false
-    @State private var initialUnread = 0
     @State private var showPins = false
     @State private var showKeyboardAlert = false
     @State private var keyboardText = ""
@@ -1684,7 +1683,6 @@ struct ChatView: View {
         }
         .onAppear {
             store.activeConversationID = conversationID
-            initialUnread = conversation?.unread ?? 0
             store.markRead(conversationID)
         }
         .onDisappear {
@@ -1942,19 +1940,14 @@ struct ChatView: View {
                     if let target { withAnimation { proxy.scrollTo(target, anchor: .center) }; jumpTarget = nil }
                 }
                 .onChange(of: conversation?.messages.count) { _, _ in
-                    if let last = conversation?.messages.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
+                    withAnimation { proxy.scrollTo("chatBottom", anchor: .bottom) }
                 }
                 .onChange(of: scrollTick) { _, _ in
-                    if let last = conversation?.messages.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
+                    withAnimation { proxy.scrollTo("chatBottom", anchor: .bottom) }
                 }
                 .onAppear {
-                    if initialUnread > 0, let conversation, conversation.messages.count >= initialUnread {
-                        let target = conversation.messages[conversation.messages.count - initialUnread]
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                            withAnimation { proxy.scrollTo(target.id, anchor: .top) }
-                        }
-                    } else if let last = conversation?.messages.last {
-                        proxy.scrollTo(last.id, anchor: .bottom)
+                    DispatchQueue.main.async {
+                        proxy.scrollTo("chatBottom", anchor: .bottom)
                     }
                 }
             }
@@ -2175,8 +2168,28 @@ struct ImagePreview: View {
 func isSameMessageGroup(_ a: ChatMessage, _ b: ChatMessage) -> Bool {
     a.fromBot == b.fromBot
         && a.authorName == b.authorName
-        && Calendar.current.isDate(a.date, inSameDayAs: b.date)
-        && abs(a.date.timeIntervalSince(b.date)) < 300
+        && abs(a.date.timeIntervalSince(b.date)) < 600
+}
+
+func messageBubbleRadii(fromBot: Bool, mergedTop: Bool, mergedBottom: Bool) -> RectangleCornerRadii {
+    // TG messageBubbleArguments: outgoing shrinks the trailing column, incoming the leading one.
+    let large: CGFloat = 16
+    let small: CGFloat = 8
+    if fromBot {
+        return RectangleCornerRadii(
+            topLeading: large,
+            bottomLeading: large,
+            bottomTrailing: mergedBottom ? small : large,
+            topTrailing: mergedTop ? small : large
+        )
+    } else {
+        return RectangleCornerRadii(
+            topLeading: mergedTop ? small : large,
+            bottomLeading: mergedBottom ? small : large,
+            bottomTrailing: large,
+            topTrailing: large
+        )
+    }
 }
 
 struct MessageRow: View {
@@ -2378,10 +2391,11 @@ struct MessageRow: View {
                 .background(
                     message.fromBot ? blue : Color(uiColor: .systemBackground),
                     in: UnevenRoundedRectangle(
-                        topLeadingRadius: mergedTop ? 8 : 16,
-                        bottomLeadingRadius: mergedBottom ? 8 : 16,
-                        bottomTrailingRadius: mergedBottom ? 8 : 16,
-                        topTrailingRadius: mergedTop ? 8 : 16
+                        cornerRadii: messageBubbleRadii(
+                            fromBot: message.fromBot,
+                            mergedTop: mergedTop,
+                            mergedBottom: mergedBottom
+                        )
                     )
                 )
             }
@@ -2422,11 +2436,10 @@ struct MessageRow: View {
             .padding(.horizontal, 12).padding(.vertical, 9)
             .background(
                 UnevenRoundedRectangle(
-                    cornerRadii: RectangleCornerRadii(
-                        topLeading: 16,
-                        bottomLeading: message.fromBot ? 16 : 4,
-                        bottomTrailing: message.fromBot ? 4 : 16,
-                        topTrailing: 16
+                    cornerRadii: messageBubbleRadii(
+                        fromBot: message.fromBot,
+                        mergedTop: mergedTop,
+                        mergedBottom: mergedBottom
                     )
                 )
                 .fill(message.fromBot ? blue : Color(uiColor: .systemBackground))
