@@ -77,6 +77,7 @@ struct Conversation: Identifiable, Codable {
     var pinned: Bool?
     var lastDate: Date { ISO8601DateFormatter().date(from: lastTimestamp) ?? .now }
     var isGroup: Bool { scene == "group" }
+    var isChannel: Bool { scene == "channel" }
 }
 
 private struct LoginInput: Codable { let username: String; let password: String }
@@ -280,7 +281,7 @@ final class ChatStore {
                 } else if kind == "RESUMED" {
                     reconnectAttempt = 0
                     status = "已连接"
-                } else if ["C2C_MESSAGE_CREATE", "GROUP_AT_MESSAGE_CREATE", "GROUP_MESSAGE_CREATE"].contains(kind) {
+                } else if ["C2C_MESSAGE_CREATE", "GROUP_AT_MESSAGE_CREATE", "GROUP_MESSAGE_CREATE", "AT_MESSAGE_CREATE", "MESSAGE_CREATE"].contains(kind) {
                     handleIncoming(kind: kind, payload: payload)
                 } else if kind == "INTERACTION_CREATE" {
                     handleInteraction(payload)
@@ -349,10 +350,25 @@ final class ChatStore {
 
     private func handleIncoming(kind: String, payload: [String: Any]) {
         let author = payload["author"] as? [String: Any] ?? [:]
-        let isGroup = kind != "C2C_MESSAGE_CREATE"
-        let target = (isGroup ? payload["group_openid"] as? String : author["user_openid"] as? String) ?? ""
+        let isChannel = kind == "AT_MESSAGE_CREATE" || kind == "MESSAGE_CREATE"
+        let isGroup = kind == "GROUP_AT_MESSAGE_CREATE" || kind == "GROUP_MESSAGE_CREATE"
+        let target: String
+        if isChannel {
+            target = payload["channel_id"] as? String ?? ""
+        } else if isGroup {
+            target = payload["group_openid"] as? String ?? ""
+        } else {
+            target = author["user_openid"] as? String ?? ""
+        }
         guard !target.isEmpty, let id = payload["id"] as? String else { return }
-        let name = isGroup ? "群聊 " + String(target.suffix(6)) : (author["username"] as? String ?? "QQ 用户")
+        let name: String
+        if isChannel {
+            name = "频道 " + String(target.suffix(6))
+        } else if isGroup {
+            name = "群聊 " + String(target.suffix(6))
+        } else {
+            name = author["username"] as? String ?? "QQ 用户"
+        }
         let content = payload["content"] as? String ?? ""
         let attachments = payload["attachments"] as? [[String: Any]] ?? []
         let attachment = attachments.first
@@ -380,7 +396,7 @@ final class ChatStore {
             audioURL: isAudio ? remote : nil,
             buttons: buttonLabels.isEmpty ? nil : buttonLabels
         )
-        append(message, target: target, scene: isGroup ? "group" : "c2c", name: name, markUnread: activeConversationID != target, replyID: id)
+        append(message, target: target, scene: isChannel ? "channel" : (isGroup ? "group" : "c2c"), name: name, markUnread: activeConversationID != target, replyID: id)
         if let remote {
             downloadMedia(remote, target: target, messageID: id, kind: isVideo ? "video" : (isAudio ? "audio" : "image"))
         }
@@ -392,8 +408,10 @@ final class ChatStore {
         let label = resolved["button_data"] as? String ?? resolved["button_id"] as? String ?? "按钮"
         let groupTarget = payload["group_openid"] as? String
         let userTarget = payload["user_openid"] as? String
+        let channelTarget = payload["channel_id"] as? String
+        let isChannel = channelTarget != nil
         let isGroup = groupTarget != nil
-        let target = groupTarget ?? userTarget ?? ""
+        let target = channelTarget ?? groupTarget ?? userTarget ?? ""
         guard !target.isEmpty else { return }
         let eventID = payload["id"] as? String ?? UUID().uuidString
         let message = ChatMessage(
@@ -403,7 +421,9 @@ final class ChatStore {
             fromBot: false,
             authorName: "按钮交互"
         )
-        append(message, target: target, scene: isGroup ? "group" : "c2c", name: isGroup ? "群聊 " + String(target.suffix(6)) : "QQ 用户", markUnread: activeConversationID != target, replyID: nil)
+        let scene = isChannel ? "channel" : (isGroup ? "group" : "c2c")
+        let name = isChannel ? "频道 " + String(target.suffix(6)) : (isGroup ? "群聊 " + String(target.suffix(6)) : "QQ 用户")
+        append(message, target: target, scene: scene, name: name, markUnread: activeConversationID != target, replyID: nil)
     }
 
     private func append(_ message: ChatMessage, target: String, scene: String, name: String, markUnread: Bool, replyID: String?) {
@@ -560,7 +580,11 @@ final class ChatStore {
         conversations[index].lastText = pending.summary
         conversations[index].lastTimestamp = pending.timestamp
         saveConversations()
-        var body: [String: Any] = ["msg_id": conversation.replyID, "msg_seq": conversation.replySeq + 1]
+        var body: [String: Any] = [:]
+        if conversation.scene != "channel" {
+            body["msg_id"] = conversation.replyID
+            body["msg_seq"] = conversation.replySeq + 1
+        }
         if let quote { body["message_reference"] = ["message_id": quote.id] }
         if let mediaFile, let mediaType {
             guard let fileURL = mediaURL(named: mediaFile), let data = try? Data(contentsOf: fileURL) else { error = "媒体文件读取失败。"; return }
@@ -598,7 +622,12 @@ final class ChatStore {
         }
         do {
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? id
-            let path = conversation.scene == "c2c" ? "/v2/users/" : "/v2/groups/"
+            let path: String
+            switch conversation.scene {
+            case "channel": path = "/channels/"
+            case "c2c": path = "/v2/users/"
+            default: path = "/v2/groups/"
+            }
             let result = try await api(path + encoded + "/messages", body: body)
             guard let messageID = result["id"] as? String else { throw URLError(.badServerResponse) }
             if let current = conversations.firstIndex(where: { $0.id == id }),
@@ -625,7 +654,12 @@ final class ChatStore {
 
     private func uploadMedia(_ data: Data, fileType: Int, fileName: String, target: String, scene: String) async throws -> String {
         let encoded = target.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? target
-        let path = scene == "c2c" ? "/v2/users/" : "/v2/groups/"
+        let path: String
+        switch scene {
+        case "channel": path = "/channels/"
+        case "c2c": path = "/v2/users/"
+        default: path = "/v2/groups/"
+        }
         let result = try await api(path + encoded + "/files", body: [
             "file_type": fileType,
             "file_data": data.base64EncodedString(),
@@ -835,9 +869,14 @@ struct ConversationRow: View {
         return palettes[sum % palettes.count]
     }
 
+    private var iconName: String {
+        if conversation.isChannel { return "antenna.radiowaves.left.and.right" }
+        return conversation.isGroup ? "person.2.fill" : "person.fill"
+    }
+
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: conversation.isGroup ? "person.2.fill" : "person.fill")
+            Image(systemName: iconName)
                 .font(.system(size: 18)).foregroundStyle(.white)
                 .frame(width: 46, height: 46)
                 .background(LinearGradient(colors: avatarColors, startPoint: .topLeading, endPoint: .bottomTrailing), in: Circle())
