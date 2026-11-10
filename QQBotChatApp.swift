@@ -101,7 +101,7 @@ final class ConversationModel {
             authenticated = true; status = "连接中"; error = nil
             if let data = try? JSONEncoder().encode(LoginInput(username: username, password: password)), let text = String(data: data, encoding: .utf8) { CredentialStore.save(token: text) }
             receiver = Task { await receive() }
-        } catch { authenticated = false; error = "QQ 登录失败，请检查机器人凭证和网络。"; stop() }
+        } catch { authenticated = false; self.error = "QQ 登录失败，请检查机器人凭证和网络。"; stop() }
     }
     private func receive() async {
         do {
