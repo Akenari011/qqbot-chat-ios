@@ -134,6 +134,16 @@ final class ChatStore {
     var schedules: [String] = []
     var pins: [String] = []
     var reactionUsers: [String] = []
+    var logs: [String] = []
+
+    var logText: String { logs.joined(separator: "\n") }
+
+    func log(_ message: String) {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss.SSS"
+        logs.append("[" + formatter.string(from: Date()) + "] " + message)
+        if logs.count > 2000 { logs.removeFirst(logs.count - 2000) }
+    }
     var appearance: String = UserDefaults.standard.string(forKey: "appearance") ?? "system" {
         didSet { UserDefaults.standard.set(appearance, forKey: "appearance") }
     }
@@ -199,11 +209,13 @@ final class ChatStore {
         loggingIn = true
         defer { loggingIn = false }
         shouldRun = true
+        log("登录开始 appId=" + username)
         do {
             try await refreshToken(force: true)
             try await openSocket(resume: false)
             isLoggedIn = true
             error = nil
+            log("登录成功")
             if let data = try? JSONEncoder().encode(LoginInput(username: username, password: password)), let text = String(data: data, encoding: .utf8) {
                 CredentialStore.save(text)
             }
@@ -212,6 +224,7 @@ final class ChatStore {
         } catch {
             isLoggedIn = false
             self.error = "QQ 登录失败，请检查机器人凭证和网络。"
+            log("登录失败 " + String(describing: error))
             stop()
         }
     }
@@ -583,6 +596,7 @@ final class ChatStore {
         let auth = try await api("/app/getAppAccessToken", body: ["appId": username, "clientSecret": password], authorized: false)
         guard let access = auth["access_token"] as? String else { throw URLError(.userAuthenticationRequired) }
         token = access
+        log("access_token 已刷新")
         let raw = auth["expires_in"]
         let seconds = (raw as? String).flatMap(Double.init) ?? (raw as? Double) ?? (raw as? Int).map(Double.init) ?? 7200
         tokenExpires = Date().addingTimeInterval(max(60, seconds - 300))
@@ -595,6 +609,7 @@ final class ChatStore {
         let ws = URLSession.shared.webSocketTask(with: url)
         socket = ws
         ws.resume()
+        log(resume ? "WebSocket 重连（Resume）" : "WebSocket 连接")
         status = resume ? "正在恢复会话" : "连接中"
         receiver = Task { await receive(resume: resume) }
     }
@@ -638,9 +653,11 @@ final class ChatStore {
                     sessionID = payload["session_id"] as? String
                     reconnectAttempt = 0
                     status = "已连接"
+                    log("READY session=" + String((sessionID ?? "").suffix(8)))
                 } else if kind == "RESUMED" {
                     reconnectAttempt = 0
                     status = "已连接"
+                    log("RESUMED 会话已恢复")
                 } else if ["C2C_MESSAGE_CREATE", "GROUP_AT_MESSAGE_CREATE", "GROUP_MESSAGE_CREATE", "AT_MESSAGE_CREATE", "MESSAGE_CREATE"].contains(kind) {
                     handleIncoming(kind: kind, payload: payload)
                 } else if kind == "INTERACTION_CREATE" {
@@ -649,6 +666,7 @@ final class ChatStore {
             }
         } catch {
             guard shouldRun, !Task.isCancelled else { return }
+            log("WebSocket 断开 " + String(describing: error))
             scheduleReconnect()
         }
     }
@@ -677,6 +695,7 @@ final class ChatStore {
         socket = nil
         reconnectAttempt += 1
         let delay = min(30, pow(2, Double(reconnectAttempt)))
+        log("计划重连 attempt=" + String(reconnectAttempt) + " delay=" + String(Int(delay)))
         status = "连接断开，\(Int(delay)) 秒后重连"
         reconnectTask?.cancel()
         reconnectTask = Task {
@@ -786,6 +805,7 @@ final class ChatStore {
                 }
             }
         }
+        log("收到消息 kind=" + kind + " target=" + String(target.suffix(6)))
         let message = ChatMessage(
             id: id, text: content, timestamp: timestamp, fromBot: false, authorName: authorName,
             imageURL: (!isVideo && !isAudio) ? remote : nil,
@@ -1044,6 +1064,7 @@ final class ChatStore {
             }
             let result = try await api(path + encoded + "/messages", body: body)
             guard let messageID = result["id"] as? String else { throw URLError(.badServerResponse) }
+            log("发送成功 type=" + (mediaType ?? "text") + " id=" + String(messageID.suffix(8)))
             if let current = conversations.firstIndex(where: { $0.id == id }),
                let mi = conversations[current].messages.firstIndex(where: { $0.id == tempID }) {
                 let old = conversations[current].messages[mi]
@@ -1058,6 +1079,7 @@ final class ChatStore {
                 saveConversations()
             }
         } catch {
+            log("发送失败 " + String(describing: error))
             if let current = conversations.firstIndex(where: { $0.id == id }),
                let mi = conversations[current].messages.firstIndex(where: { $0.id == tempID }) {
                 conversations[current].messages[mi].status = "failed"
@@ -2152,6 +2174,11 @@ struct SettingsView: View {
                     }
                 } footer: {
                     Text("退出后需重新输入 AppID 与 AppSecret。")
+                }
+                Section("诊断") {
+                    ShareLink(item: store.logText) { Label("导出日志", systemImage: "square.and.arrow.up") }
+                    Button("清空日志") { store.logs.removeAll() }
+                    LabeledContent("日志条数", value: "\(store.logs.count)")
                 }
                 Section("关于") {
                     LabeledContent("版本", value: (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "-") + " (" + (Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "-") + ")")
