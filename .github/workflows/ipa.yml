@@ -1,0 +1,36 @@
+name: Unsigned device IPA
+"on":
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build unsigned iPhone app
+        run: >-
+          xcodebuild -project QQBotChat.xcodeproj -scheme QQBotChat
+          -configuration Release -sdk iphoneos -destination 'generic/platform=iOS'
+          -derivedDataPath device-build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+          CODE_SIGN_IDENTITY='' build
+      - name: Package and verify device IPA
+        run: |
+          mkdir -p ipa/Payload
+          cp -R device-build/Build/Products/Release-iphoneos/QQBotChat.app ipa/Payload/
+          file ipa/Payload/QQBotChat.app/QQBotChat
+          lipo -verify_arch arm64 ipa/Payload/QQBotChat.app/QQBotChat
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' ipa/Payload/QQBotChat.app/Info.plist
+          cd ipa
+          zip -qry ../QQBotChat-unsigned.ipa Payload
+          cd ..
+          shasum -a 256 QQBotChat-unsigned.ipa > QQBotChat-unsigned.ipa.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: QQBotChat-unsigned-IPA
+          path: |
+            QQBotChat-unsigned.ipa
+            QQBotChat-unsigned.ipa.sha256
+          if-no-files-found: error
