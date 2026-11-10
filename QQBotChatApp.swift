@@ -1281,7 +1281,7 @@ struct ChatView: View {
     let store: ChatStore
     let conversationID: String
     @State private var draft = ""
-    @State private var pickerItem: PhotosPickerItem?
+    @State private var pickerItems: [PhotosPickerItem] = []
     @State private var videoItem: PhotosPickerItem?
     @State private var quoting: ChatMessage?
     @State private var recorder: AVAudioRecorder?
@@ -1290,6 +1290,9 @@ struct ChatView: View {
     @State private var showEmoji = false
     @State private var showFileImporter = false
     @State private var showSchedules = false
+    @State private var showChatSearch = false
+    @State private var chatQuery = ""
+    @State private var jumpTarget: String?
     @State private var showPins = false
     @State private var showKeyboardAlert = false
     @State private var keyboardText = ""
@@ -1297,6 +1300,13 @@ struct ChatView: View {
     private let blue = Color(red: 0.20, green: 0.55, blue: 0.88)
 
     private var conversation: Conversation? { store.conversation(conversationID) }
+
+    private var searchResults: [ChatMessage] {
+        let all = conversation?.messages ?? []
+        guard !chatQuery.trimmingCharacters(in: .whitespaces).isEmpty else { return Array(all.suffix(50)) }
+        let needle = chatQuery.trimmingCharacters(in: .whitespaces)
+        return all.filter { $0.text.localizedCaseInsensitiveContains(needle) }
+    }
 
     @ViewBuilder
     private var chatBackground: some View {
@@ -1346,6 +1356,9 @@ struct ChatView: View {
                 }
                 .background(chatBackground)
                 .animation(.easeOut(duration: 0.2), value: conversation?.messages.count)
+                .onChange(of: jumpTarget) { _, target in
+                    if let target { withAnimation { proxy.scrollTo(target, anchor: .center) }; jumpTarget = nil }
+                }
                 .onChange(of: conversation?.messages.count) { _, _ in
                     if let last = conversation?.messages.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
                 }
@@ -1363,6 +1376,10 @@ struct ChatView: View {
                     Text(conversation?.name ?? "聊天").font(.system(size: 16, weight: .semibold))
                     Text(store.status).font(.system(size: 10)).foregroundStyle(.secondary)
                 }
+            }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button { showChatSearch = true } label: { Image(systemName: "magnifyingglass") }
+                    .accessibilityLabel("搜索本会话")
             }
             if conversation?.scene == "channel" {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -1386,13 +1403,34 @@ struct ChatView: View {
             UserDefaults.standard.set(store.drafts, forKey: "drafts")
             if recording { recorder?.stop(); recorder = nil; recording = false }
         }
-        .onChange(of: pickerItem) { _, item in
-            guard let item else { return }
+        .onChange(of: pickerItems) { _, items in
+            guard !items.isEmpty else { return }
             Task {
-                if let data = try? await item.loadTransferable(type: Data.self) {
-                    await store.sendImage(data, to: conversationID)
+                for item in items {
+                    if let data = try? await item.loadTransferable(type: Data.self) {
+                        await store.sendImage(data, to: conversationID)
+                    }
                 }
-                pickerItem = nil
+                pickerItems = []
+            }
+        }
+        .sheet(isPresented: $showChatSearch) {
+            NavigationStack {
+                List(searchResults, id: \.id) { message in
+                    Button {
+                        jumpTarget = message.id
+                        showChatSearch = false
+                    } label: {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(message.text.isEmpty ? message.summary : message.text).font(.system(size: 14)).lineLimit(2)
+                            Text(message.authorName + " · " + message.timestamp).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                    }
+                }
+                .searchable(text: $chatQuery, prompt: "搜索本会话消息")
+                .navigationTitle("搜索消息")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("完成") { showChatSearch = false } } }
             }
         }
         .alert("发送带按钮的消息", isPresented: $showKeyboardAlert) {
@@ -1491,10 +1529,10 @@ struct ChatView: View {
                 .background(Color(uiColor: .secondarySystemBackground))
             }
             HStack(spacing: 8) {
-                PhotosPicker(selection: $pickerItem, matching: .images, photoLibrary: .shared()) {
+                PhotosPicker(selection: $pickerItems, maxSelectionCount: 9, matching: .images, photoLibrary: .shared()) {
                     Image(systemName: "photo.on.rectangle").font(.system(size: 20)).foregroundStyle(blue)
                 }
-                .accessibilityLabel("发送图片")
+                .accessibilityLabel("发送图片，最多九张")
                 PhotosPicker(selection: $videoItem, matching: .videos, photoLibrary: .shared()) {
                     Image(systemName: "video").font(.system(size: 20)).foregroundStyle(blue)
                 }
