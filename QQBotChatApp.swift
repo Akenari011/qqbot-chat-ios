@@ -2419,9 +2419,15 @@ struct MessageRow: View {
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            if message.fromBot { Spacer(minLength: 48) } else { avatar }
+            if message.fromBot {
+                Spacer(minLength: 48)
+            } else if mergedTop {
+                Color.clear.frame(width: 30, height: 30)
+            } else {
+                avatar
+            }
             VStack(alignment: message.fromBot ? .trailing : .leading, spacing: 4) {
-                if !message.fromBot {
+                if !message.fromBot && !mergedTop {
                     Text(message.authorName).font(.system(size: 11)).foregroundStyle(.secondary).padding(.horizontal, 4)
                 }
                 if message.quotedText != nil || message.quotedID != nil {
@@ -2455,7 +2461,11 @@ struct MessageRow: View {
                     }.padding(.horizontal, 4)
                 }
             }
-            if !message.fromBot { Spacer(minLength: 48) } else { botAvatar }
+            if message.fromBot {
+                if mergedBottom { Color.clear.frame(width: 30, height: 30) } else { botAvatar }
+            } else {
+                Spacer(minLength: 48)
+            }
         }
         .frame(maxWidth: .infinity, alignment: message.fromBot ? .trailing : .leading)
         .contextMenu {
