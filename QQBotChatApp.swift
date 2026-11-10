@@ -1545,9 +1545,17 @@ struct ChatView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
-                VStack(spacing: 1) {
-                    Text(conversation?.name ?? "聊天").font(.system(size: 16, weight: .semibold))
-                    Text(store.status).font(.system(size: 10)).foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    ZStack {
+                        Circle().fill(blue.gradient)
+                        Text(String((conversation?.name ?? "聊").prefix(1)))
+                            .font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+                    }
+                    .frame(width: 30, height: 30)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(conversation?.name ?? "聊天").font(.system(size: 15, weight: .semibold)).lineLimit(1)
+                        Text(store.status).font(.system(size: 10)).foregroundStyle(.secondary)
+                    }
                 }
             }
             ToolbarItem(placement: .navigationBarTrailing) {
