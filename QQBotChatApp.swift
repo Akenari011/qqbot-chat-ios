@@ -84,6 +84,8 @@ struct Conversation: Identifiable, Codable {
     var replyID: String
     var replySeq: Int
     var pinned: Bool?
+    var archived: Bool?
+    var muted: Bool?
     var lastDate: Date { ISO8601DateFormatter().date(from: lastTimestamp) ?? .now }
     var isGroup: Bool { scene == "group" }
     var isChannel: Bool { scene == "channel" }
@@ -131,6 +133,9 @@ final class ChatStore {
     var reactionUsers: [String] = []
     var appearance: String = UserDefaults.standard.string(forKey: "appearance") ?? "system" {
         didSet { UserDefaults.standard.set(appearance, forKey: "appearance") }
+    }
+    var showArchived: Bool = UserDefaults.standard.bool(forKey: "showArchived") {
+        didSet { UserDefaults.standard.set(showArchived, forKey: "showArchived") }
     }
 
     private var token = ""
@@ -752,7 +757,7 @@ final class ChatStore {
             let updated = conversations.remove(at: index)
             conversations.insert(updated, at: 0)
         } else {
-            let conversation = Conversation(id: target, scene: scene, name: name, lastText: message.summary, lastTimestamp: message.timestamp, unread: markUnread ? 1 : 0, messages: [message], replyID: replyID ?? "", replySeq: 0, pinned: nil)
+            let conversation = Conversation(id: target, scene: scene, name: name, lastText: message.summary, lastTimestamp: message.timestamp, unread: markUnread ? 1 : 0, messages: [message], replyID: replyID ?? "", replySeq: 0, pinned: nil, archived: nil, muted: nil)
             conversations.append(conversation)
         }
         sortConversations()
@@ -766,6 +771,18 @@ final class ChatStore {
             if left != right { return left }
             return $0.lastDate > $1.lastDate
         }
+    }
+
+    func toggleArchive(_ id: String) {
+        guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
+        conversations[index].archived = !(conversations[index].archived ?? false)
+        saveConversations()
+    }
+
+    func toggleMute(_ id: String) {
+        guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
+        conversations[index].muted = !(conversations[index].muted ?? false)
+        saveConversations()
     }
 
     func togglePin(_ id: String) {
@@ -1101,9 +1118,10 @@ struct ConversationListView: View {
     private let blue = Color(red: 0.20, green: 0.55, blue: 0.88)
 
     private var filtered: [Conversation] {
-        guard !query.trimmingCharacters(in: .whitespaces).isEmpty else { return store.conversations }
+        let base = store.conversations.filter { store.showArchived || !($0.archived ?? false) }
+        guard !query.trimmingCharacters(in: .whitespaces).isEmpty else { return base }
         let needle = query.trimmingCharacters(in: .whitespaces)
-        return store.conversations.filter {
+        return base.filter {
             $0.name.localizedCaseInsensitiveContains(needle) ||
             $0.lastText.localizedCaseInsensitiveContains(needle) ||
             $0.messages.contains { $0.text.localizedCaseInsensitiveContains(needle) }
@@ -1138,6 +1156,18 @@ struct ConversationListView: View {
                                     Label(conversation.pinned == true ? "取消置顶" : "置顶", systemImage: "pin")
                                 }
                                 .tint(.orange)
+                                Button {
+                                    store.toggleMute(conversation.id)
+                                } label: {
+                                    Label(conversation.muted == true ? "取消静音" : "静音", systemImage: "bell.slash")
+                                }
+                                .tint(.gray)
+                                Button {
+                                    store.toggleArchive(conversation.id)
+                                } label: {
+                                    Label(conversation.archived == true ? "取消归档" : "归档", systemImage: "archivebox")
+                                }
+                                .tint(.blue)
                             }
                         }
                     }
@@ -1211,10 +1241,14 @@ struct ConversationRow: View {
                         .font(.system(size: 13)).foregroundStyle(.secondary).lineLimit(1)
                     Spacer()
                     if conversation.unread > 0 {
-                        Text("\(conversation.unread)")
-                            .font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
-                            .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(blue, in: Capsule())
+                        if conversation.muted == true {
+                            Circle().fill(Color.secondary.opacity(0.6)).frame(width: 8, height: 8)
+                        } else {
+                            Text("\(conversation.unread)")
+                                .font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(blue, in: Capsule())
+                        }
                     }
                 }
             }
@@ -1813,6 +1847,9 @@ struct SettingsView: View {
                         Text("深色").tag("dark")
                     }
                     .pickerStyle(.segmented)
+                }
+                Section("会话") {
+                    Toggle("显示归档会话", isOn: Binding(get: { store.showArchived }, set: { store.showArchived = $0 }))
                 }
                 Section("频道") {
                     NavigationLink("频道列表") { GuildListView(store: store) }
