@@ -1297,6 +1297,12 @@ struct ChatView: View {
     @State private var showChatSearch = false
     @State private var chatQuery = ""
     @State private var jumpTarget: String?
+    @State private var previewImage: UIImage?
+    @State private var showPreview = false
+    @State private var editingMessage: ChatMessage?
+    @State private var editText = ""
+    @State private var reactionMessageID: String?
+    @State private var showReactionUsers = false
     @State private var showPins = false
     @State private var showKeyboardAlert = false
     @State private var keyboardText = ""
@@ -1352,14 +1358,26 @@ struct ChatView: View {
                                         .font(.system(size: 11)).foregroundStyle(.secondary)
                                         .padding(.vertical, 6)
                                 }
-                                MessageRow(store: store, conversationID: conversationID, message: message, onQuote: { quoting = $0 }, onJump: { target in withAnimation { proxy.scrollTo(target, anchor: .center) } }).id(message.id)
+                                MessageRow(
+                                    store: store,
+                                    conversationID: conversationID,
+                                    message: message,
+                                    onQuote: { quoting = $0 },
+                                    onJump: { target in withAnimation { proxy.scrollTo(target, anchor: .center) } },
+                                    onPreview: { image in previewImage = image; showPreview = true },
+                                    onEdit: { target in editingMessage = target; editText = target.text },
+                                    onReactionUsers: { messageID in
+                                        reactionMessageID = messageID
+                                        showReactionUsers = true
+                                        Task { await store.loadReactionUsers(conversationID: conversationID, messageID: messageID) }
+                                    }
+                                ).id(message.id)
                             }
                         }
                     }
                     .padding(.horizontal, 12).padding(.vertical, 12)
                 }
                 .background(chatBackground)
-                .animation(.easeOut(duration: 0.2), value: conversation?.messages.count)
                 .onChange(of: jumpTarget) { _, target in
                     if let target { withAnimation { proxy.scrollTo(target, anchor: .center) }; jumpTarget = nil }
                 }
@@ -1416,6 +1434,41 @@ struct ChatView: View {
                     }
                 }
                 pickerItems = []
+            }
+        }
+        .sheet(isPresented: $showReactionUsers) {
+            NavigationStack {
+                List(store.reactionUsers, id: \.self) { name in Text(name) }
+                    .navigationTitle("点赞用户")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("完成") { showReactionUsers = false } } }
+            }
+        }
+        .alert("编辑消息", isPresented: Binding(get: { editingMessage != nil }, set: { if !$0 { editingMessage = nil } })) {
+            TextField("内容", text: $editText)
+            Button("保存") {
+                if let target = editingMessage {
+                    Task { await store.editMessage(conversationID: conversationID, messageID: target.id, newText: editText) }
+                }
+                editingMessage = nil
+            }
+            Button("取消", role: .cancel) { editingMessage = nil }
+        }
+        .fullScreenCover(isPresented: $showPreview) {
+            ZStack {
+                Color.black.ignoresSafeArea()
+                if let previewImage {
+                    Image(uiImage: previewImage).resizable().scaledToFit()
+                }
+                VStack {
+                    HStack {
+                        Spacer()
+                        Button { showPreview = false } label: {
+                            Image(systemName: "xmark.circle.fill").font(.system(size: 28)).foregroundStyle(.white.opacity(0.9))
+                        }.padding()
+                    }
+                    Spacer()
+                }
             }
         }
         .sheet(isPresented: $showChatSearch) {
@@ -1602,14 +1655,12 @@ struct MessageRow: View {
     let message: ChatMessage
     let onQuote: (ChatMessage) -> Void
     let onJump: (String) -> Void
+    let onPreview: (UIImage) -> Void
+    let onEdit: (ChatMessage) -> Void
+    let onReactionUsers: (String) -> Void
     @State private var audioPlayer: AVAudioPlayer?
     @State private var playingAudio = false
-    @State private var previewImage: UIImage?
-    @State private var showPreview = false
     @State private var loadedImage: UIImage?
-    @State private var editing = false
-    @State private var editText = ""
-    @State private var showReactionUsers = false
     private let blue = Color(red: 0.20, green: 0.55, blue: 0.88)
 
     private var avatarLetter: String {
@@ -1702,7 +1753,7 @@ struct MessageRow: View {
             }
             if store.conversation(conversationID)?.scene == "channel" {
                 if message.fromBot {
-                    Button { editText = message.text; editing = true } label: { Label("编辑", systemImage: "pencil") }
+                    Button { onEdit(message) } label: { Label("编辑", systemImage: "pencil") }
                 }
                 Button {
                     Task { await store.react(conversationID: conversationID, messageID: message.id) }
@@ -1722,10 +1773,7 @@ struct MessageRow: View {
                 Button {
                     Task { await store.deleteAnnounce(conversationID: conversationID, messageID: message.id) }
                 } label: { Label("取消公告", systemImage: "megaphone.slash") }
-                Button {
-                    showReactionUsers = true
-                    Task { await store.loadReactionUsers(conversationID: conversationID, messageID: message.id) }
-                } label: { Label("点赞用户", systemImage: "person.2") }
+                Button { onReactionUsers(message.id) } label: { Label("点赞用户", systemImage: "person.2") }
                 Button {
                     Task { await store.recallMessage(conversationID: conversationID, messageID: message.id) }
                 } label: { Label("撤回", systemImage: "arrow.uturn.backward") }
@@ -1742,36 +1790,6 @@ struct MessageRow: View {
             }.value
             loadedImage = image
         }
-        .sheet(isPresented: $showReactionUsers) {
-            NavigationStack {
-                List(store.reactionUsers, id: \.self) { name in Text(name) }
-                    .navigationTitle("点赞用户")
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("完成") { showReactionUsers = false } } }
-            }
-        }
-        .alert("编辑消息", isPresented: $editing) {
-            TextField("内容", text: $editText)
-            Button("保存") { Task { await store.editMessage(conversationID: conversationID, messageID: message.id, newText: editText) } }
-            Button("取消", role: .cancel) {}
-        }
-        .fullScreenCover(isPresented: $showPreview) {
-            ZStack {
-                Color.black.ignoresSafeArea()
-                if let previewImage {
-                    Image(uiImage: previewImage).resizable().scaledToFit()
-                }
-                VStack {
-                    HStack {
-                        Spacer()
-                        Button { showPreview = false } label: {
-                            Image(systemName: "xmark.circle.fill").font(.system(size: 28)).foregroundStyle(.white.opacity(0.9))
-                        }.padding()
-                    }
-                    Spacer()
-                }
-            }
-        }
     }
 
     @ViewBuilder
@@ -1781,7 +1799,7 @@ struct MessageRow: View {
                 Image(uiImage: image).resizable().scaledToFit()
                     .frame(maxWidth: 220, maxHeight: 280)
                     .clipShape(RoundedRectangle(cornerRadius: 14))
-                    .onTapGesture { previewImage = image; showPreview = true }
+                    .onTapGesture { onPreview(image) }
             } else {
                 ZStack {
                     RoundedRectangle(cornerRadius: 14).fill(Color(uiColor: .tertiarySystemBackground))
