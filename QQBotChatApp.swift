@@ -122,6 +122,7 @@ final class ChatStore {
     var botID = ""
     var guilds: [GuildInfo] = []
     var guildMembers: [String: [String]] = [:]
+    var schedules: [String] = []
     var appearance: String = UserDefaults.standard.string(forKey: "appearance") ?? "system" {
         didSet { UserDefaults.standard.set(appearance, forKey: "appearance") }
     }
@@ -231,6 +232,46 @@ final class ChatStore {
             error = nil
         } catch {
             self.error = "表情回应失败，可能需要频道权限。"
+        }
+    }
+
+    func editMessage(conversationID: String, messageID: String, newText: String) async {
+        guard conversation(conversationID)?.scene == "channel" else {
+            error = "当前仅频道消息支持编辑。"
+            return
+        }
+        let cid = conversationID.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? conversationID
+        var request = URLRequest(url: URL(string: "https://api.bot.qq.com/channels/" + cid + "/messages/" + messageID)!)
+        request.httpMethod = "PATCH"
+        request.setValue("QQBot " + token, forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["content": newText])
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw URLError(.badServerResponse) }
+            if let index = conversations.firstIndex(where: { $0.id == conversationID }),
+               let mi = conversations[index].messages.firstIndex(where: { $0.id == messageID }) {
+                conversations[index].messages[mi].text = newText
+                saveConversations()
+            }
+            error = nil
+        } catch {
+            self.error = "编辑失败，可能需要频道权限。"
+        }
+    }
+
+    func loadSchedules(channelID: String) async {
+        let cid = channelID.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? channelID
+        do {
+            let raw = try await apiAny("/channels/" + cid + "/schedules")
+            guard let list = raw as? [[String: Any]] else { return }
+            schedules = list.compactMap { item in
+                guard let name = item["name"] as? String else { return nil }
+                let start = (item["start_timestamp"] as? String) ?? (item["start_time"] as? String) ?? ""
+                return name + (start.isEmpty ? "" : "  " + start)
+            }
+        } catch {
+            self.error = "日程获取失败，可能需要频道权限。"
         }
     }
 
@@ -1047,6 +1088,7 @@ struct ChatView: View {
     @State private var recording = false
     @State private var showEmoji = false
     @State private var showFileImporter = false
+    @State private var showSchedules = false
     private let emojis = ["😀","😂","🥰","😎","🤔","😭","👍","👎","❤️","🎉","🔥","🌹","🍀","☀️","🌙","⭐️","✅","❌","🤝","🙏","😴","🤣","😅","🥳","😇","🤩","😋","🤗"]
     private let blue = Color(red: 0.20, green: 0.55, blue: 0.88)
 
@@ -1101,6 +1143,12 @@ struct ChatView: View {
                     Text(store.status).font(.system(size: 10)).foregroundStyle(.secondary)
                 }
             }
+            if conversation?.scene == "channel" {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button { showSchedules = true } label: { Image(systemName: "calendar") }
+                        .accessibilityLabel("频道日程")
+                }
+            }
         }
         .onAppear {
             store.activeConversationID = conversationID
@@ -1120,6 +1168,15 @@ struct ChatView: View {
                     await store.sendImage(data, to: conversationID)
                 }
                 pickerItem = nil
+            }
+        }
+        .sheet(isPresented: $showSchedules) {
+            NavigationStack {
+                List(store.schedules, id: \.self) { item in Text(item) }
+                    .navigationTitle("频道日程")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("完成") { showSchedules = false } } }
+                    .task { await store.loadSchedules(channelID: conversationID) }
             }
         }
         .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.item], allowsMultipleSelection: false) { result in
@@ -1265,6 +1322,8 @@ struct MessageRow: View {
     @State private var playingAudio = false
     @State private var previewImage: UIImage?
     @State private var showPreview = false
+    @State private var editing = false
+    @State private var editText = ""
     private let blue = Color(red: 0.20, green: 0.55, blue: 0.88)
 
     private var avatarLetter: String {
@@ -1349,6 +1408,9 @@ struct MessageRow: View {
                 } label: { Label("保存图片", systemImage: "square.and.arrow.down") }
             }
             if store.conversation(conversationID)?.scene == "channel" {
+                if message.fromBot {
+                    Button { editText = message.text; editing = true } label: { Label("编辑", systemImage: "pencil") }
+                }
                 Button {
                     Task { await store.react(conversationID: conversationID, messageID: message.id) }
                 } label: { Label("点赞回应", systemImage: "hand.thumbsup") }
@@ -1362,6 +1424,11 @@ struct MessageRow: View {
             Button(role: .destructive) {
                 store.deleteMessage(conversationID: conversationID, messageID: message.id)
             } label: { Label("删除", systemImage: "trash") }
+        }
+        .alert("编辑消息", isPresented: $editing) {
+            TextField("内容", text: $editText)
+            Button("保存") { Task { await store.editMessage(conversationID: conversationID, messageID: message.id, newText: editText) } }
+            Button("取消", role: .cancel) {}
         }
         .fullScreenCover(isPresented: $showPreview) {
             ZStack {
