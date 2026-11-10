@@ -156,7 +156,7 @@ final class ChatStore {
     var chatBackground: String = UserDefaults.standard.string(forKey: "chatBackground") ?? "default" {
         didSet { UserDefaults.standard.set(chatBackground, forKey: "chatBackground") }
     }
-    var mentionSyntax: Bool = UserDefaults.standard.bool(forKey: "mentionSyntax") {
+    var mentionSyntax: Bool = (UserDefaults.standard.object(forKey: "mentionSyntax") as? Bool) ?? true {
         didSet { UserDefaults.standard.set(mentionSyntax, forKey: "mentionSyntax") }
     }
 
@@ -1113,7 +1113,7 @@ final class ChatStore {
             }
             let result = try await api(path + encoded + "/messages", body: body)
             guard let messageID = result["id"] as? String else { throw URLError(.badServerResponse) }
-            log("发送成功 type=" + (mediaType ?? "text") + " id=" + String(messageID.suffix(8)))
+            log("发送成功 type=" + (mediaType ?? "text") + " id=" + String(messageID.suffix(8)) + " content=" + String(text.prefix(40)))
             if let current = conversations.firstIndex(where: { $0.id == id }),
                let mi = conversations[current].messages.firstIndex(where: { $0.id == tempID }) {
                 let old = conversations[current].messages[mi]
@@ -1171,7 +1171,7 @@ final class ChatStore {
 
     private func retryFirstFailedMessage() {
         for conversation in conversations {
-            if let message = conversation.messages.first(where: { $0.status == "failed" }) {
+            if let message = conversation.messages.first(where: { $0.status == "failed" && !$0.text.contains("<@") }) {
                 log("自动重试失败消息 " + String(message.id.suffix(6)))
                 Task { await retryMessage(conversationID: conversation.id, messageID: message.id) }
                 return
