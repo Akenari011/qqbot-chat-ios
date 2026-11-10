@@ -854,7 +854,7 @@ final class ChatStore {
         }
         let authorID = author["id"] as? String ?? ""
         let memberOpenID = author["member_openid"] as? String ?? ""
-        log("收到消息 kind=" + kind + " target=" + String(target.suffix(6)) + " authorID=" + String(authorID.suffix(6)) + " member=" + String(memberOpenID.suffix(6)))
+        log("收到消息 kind=" + kind + " target=" + String(target.suffix(6)) + " authorKeys=" + author.keys.sorted().joined(separator: ",") + " id=" + String(authorID.suffix(8)) + " member=" + String(memberOpenID.suffix(8)))
         let message = ChatMessage(
             id: id, text: content, timestamp: timestamp, fromBot: false, authorName: authorName,
             imageURL: (!isVideo && !isAudio) ? remote : nil,
