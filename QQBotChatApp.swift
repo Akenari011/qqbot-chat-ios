@@ -1375,6 +1375,7 @@ struct ChatView: View {
     @State private var editText = ""
     @State private var reactionMessageID: String?
     @State private var showReactionUsers = false
+    @State private var playingVideoURL: URL?
     @State private var showPins = false
     @State private var showKeyboardAlert = false
     @State private var keyboardText = ""
@@ -1418,13 +1419,14 @@ struct ChatView: View {
                 ScrollView {
                     LazyVStack(spacing: 12) {
                         if let conversation {
-                            if conversation.messages.isEmpty {
+                            let visible = Array(conversation.messages.suffix(300))
+                            if visible.isEmpty {
                                 Text("从 QQ 给机器人发一条消息开始聊天")
                                     .font(.system(size: 13)).foregroundStyle(.secondary)
                                     .padding(.top, 40)
                             }
-                            ForEach(Array(conversation.messages.enumerated()), id: \.element.id) { index, message in
-                                if index == 0 || !Calendar.current.isDate(message.date, inSameDayAs: conversation.messages[index - 1].date) {
+                            ForEach(Array(visible.enumerated()), id: \.element.id) { index, message in
+                                if index == 0 || !Calendar.current.isDate(message.date, inSameDayAs: visible[index - 1].date) {
                                     Text(message.date, format: .dateTime.year().month().day())
                                         .font(.system(size: 11)).foregroundStyle(.secondary)
                                         .padding(.vertical, 6)
@@ -1441,7 +1443,8 @@ struct ChatView: View {
                                         reactionMessageID = messageID
                                         showReactionUsers = true
                                         Task { await store.loadReactionUsers(conversationID: conversationID, messageID: messageID) }
-                                    }
+                                    },
+                                    onPlayVideo: { url in playingVideoURL = url }
                                 ).id(message.id)
                             }
                         }
@@ -1503,6 +1506,11 @@ struct ChatView: View {
                     }
                 }
                 pickerItems = []
+            }
+        }
+        .sheet(isPresented: Binding(get: { playingVideoURL != nil }, set: { if !$0 { playingVideoURL = nil } })) {
+            if let url = playingVideoURL {
+                VideoPlayer(player: AVPlayer(url: url)).ignoresSafeArea()
             }
         }
         .sheet(isPresented: $showReactionUsers) {
@@ -1786,6 +1794,7 @@ struct MessageRow: View {
     let onPreview: (UIImage) -> Void
     let onEdit: (ChatMessage) -> Void
     let onReactionUsers: (String) -> Void
+    let onPlayVideo: (URL) -> Void
     @State private var audioPlayer: AVAudioPlayer?
     @State private var playingAudio = false
     @State private var loadedImage: UIImage?
@@ -1941,9 +1950,17 @@ struct MessageRow: View {
                 .frame(width: 160, height: 160)
             }
         } else if let name = message.videoFile, let url = store.mediaURL(named: name) {
-            VideoPlayer(player: AVPlayer(url: url))
-                .frame(width: 240, height: 180)
-                .clipShape(RoundedRectangle(cornerRadius: 14))
+            Button { onPlayVideo(url) } label: {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 14).fill(Color.black.opacity(0.78))
+                    VStack(spacing: 6) {
+                        Image(systemName: "play.circle.fill").font(.system(size: 44)).foregroundStyle(.white)
+                        Text("点击播放视频").font(.system(size: 11)).foregroundStyle(.white.opacity(0.85))
+                    }
+                }
+                .frame(width: 240, height: 160)
+            }
+            .buttonStyle(.plain)
         } else if let name = message.audioFile, let url = store.mediaURL(named: name) {
             Button { toggleAudio(url) } label: {
                 HStack(spacing: 8) {
