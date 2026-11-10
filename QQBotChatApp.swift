@@ -113,6 +113,8 @@ final class ChatStore {
     var activeConversationID: String?
     var sendingConversationID: String?
     var drafts: [String: String] = UserDefaults.standard.dictionary(forKey: "drafts") as? [String: String] ?? [:]
+    var botName = ""
+    var botID = ""
     var appearance: String = UserDefaults.standard.string(forKey: "appearance") ?? "system" {
         didSet { UserDefaults.standard.set(appearance, forKey: "appearance") }
     }
@@ -177,10 +179,51 @@ final class ChatStore {
                 CredentialStore.save(text)
             }
             startNetworkMonitor()
+            await loadProfile()
         } catch {
             isLoggedIn = false
             self.error = "QQ 登录失败，请检查机器人凭证和网络。"
             stop()
+        }
+    }
+
+    func loadProfile() async {
+        do {
+            let me = try await api("/users/@me")
+            botName = me["username"] as? String ?? ""
+            botID = me["id"] as? String ?? ""
+        } catch {
+            // Profile is optional; keep the chat usable.
+        }
+    }
+
+    func recallMessage(conversationID: String, messageID: String) async {
+        guard let conversation = conversation(conversationID) else { return }
+        guard conversation.scene == "channel" else {
+            error = "当前仅频道消息支持撤回。"
+            return
+        }
+        let encoded = conversationID.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? conversationID
+        do {
+            _ = try await api("/channels/" + encoded + "/messages/" + messageID + "/recall", body: [:])
+            deleteMessage(conversationID: conversationID, messageID: messageID)
+            error = nil
+        } catch {
+            self.error = "撤回失败，可能需要频道管理权限。"
+        }
+    }
+
+    func reconnect() {
+        guard shouldRun else { return }
+        reconnectTask?.cancel()
+        receiver?.cancel()
+        heartbeat?.cancel()
+        socket?.cancel(with: .goingAway, reason: nil)
+        socket = nil
+        status = "正在重新连接"
+        Task {
+            do { try await openSocket(resume: sessionID != nil && sequence != nil) }
+            catch { scheduleReconnect() }
         }
     }
 
@@ -1227,6 +1270,17 @@ struct MessageRow: View {
                 Button { UIPasteboard.general.string = message.text } label: { Label("复制", systemImage: "doc.on.doc") }
             }
             Button { onQuote(message) } label: { Label("引用", systemImage: "arrowshape.turn.up.left") }
+            if let name = message.localImage, let image = store.image(named: name) {
+                Button {
+                    UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+                    store.error = "图片已保存到相册。"
+                } label: { Label("保存图片", systemImage: "square.and.arrow.down") }
+            }
+            if store.conversation(conversationID)?.scene == "channel" {
+                Button {
+                    Task { await store.recallMessage(conversationID: conversationID, messageID: message.id) }
+                } label: { Label("撤回", systemImage: "arrow.uturn.backward") }
+            }
             Button(role: .destructive) {
                 store.deleteMessage(conversationID: conversationID, messageID: message.id)
             } label: { Label("删除", systemImage: "trash") }
@@ -1369,8 +1423,10 @@ struct SettingsView: View {
         NavigationStack {
             List {
                 Section("账号") {
+                    LabeledContent("机器人", value: store.botName.isEmpty ? "未获取" : store.botName)
                     LabeledContent("AppID", value: store.username.isEmpty ? "未登录" : store.username)
                     LabeledContent("连接状态", value: store.status)
+                    Button("重新连接") { store.reconnect() }
                 }
                 Section("外观") {
                     Picker("主题", selection: Binding(get: { store.appearance }, set: { store.appearance = $0 })) {
