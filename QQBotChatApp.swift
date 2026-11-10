@@ -1881,6 +1881,7 @@ struct MessageRow: View {
     @State private var audioPlayer: AVAudioPlayer?
     @State private var playingAudio = false
     @State private var loadedImage: UIImage?
+    @State private var videoThumbnail: UIImage?
     private let blue = Color(red: 0.20, green: 0.55, blue: 0.88)
 
     private var avatarLetter: String {
@@ -1955,6 +1956,18 @@ struct MessageRow: View {
         }
         .frame(maxWidth: .infinity, alignment: message.fromBot ? .trailing : .leading)
         .onLongPressGesture(minimumDuration: 0.35) { onLongPress(message) }
+        .task(id: message.videoFile) {
+            guard let name = message.videoFile, let url = store.mediaURL(named: name), videoThumbnail == nil else { return }
+            let thumbnail = await Task.detached(priority: .utility) { () -> UIImage? in
+                let asset = AVAsset(url: url)
+                let generator = AVAssetImageGenerator(asset: asset)
+                generator.appliesPreferredTrackTransform = true
+                generator.maximumSize = CGSize(width: 480, height: 320)
+                guard let cgImage = try? generator.copyCGImage(at: .zero, actualTime: nil) else { return nil }
+                return UIImage(cgImage: cgImage)
+            }.value
+            videoThumbnail = thumbnail
+        }
         .task(id: message.localImage) {
             guard let name = message.localImage, loadedImage == nil else { return }
             let path = store.mediaURL(named: name)?.path
@@ -1983,13 +1996,16 @@ struct MessageRow: View {
         } else if let name = message.videoFile, let url = store.mediaURL(named: name) {
             Button { onPlayVideo(url) } label: {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 14).fill(Color.black.opacity(0.78))
-                    VStack(spacing: 6) {
-                        Image(systemName: "play.circle.fill").font(.system(size: 44)).foregroundStyle(.white)
-                        Text("点击播放视频").font(.system(size: 11)).foregroundStyle(.white.opacity(0.85))
+                    if let videoThumbnail {
+                        Image(uiImage: videoThumbnail).resizable().scaledToFill()
+                    } else {
+                        Color.black.opacity(0.78)
                     }
+                    Image(systemName: "play.circle.fill").font(.system(size: 44)).foregroundStyle(.white)
+                        .shadow(radius: 4)
                 }
                 .frame(width: 240, height: 160)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
             }
             .buttonStyle(.plain)
         } else if let name = message.audioFile, let url = store.mediaURL(named: name) {
