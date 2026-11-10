@@ -1098,6 +1098,21 @@ final class ChatStore {
         try? data.write(to: stateURL, options: .atomic)
     }
 
+    func retryMessage(conversationID: String, messageID: String) async {
+        guard let conversation = conversation(conversationID),
+              let message = conversation.messages.first(where: { $0.id == messageID }),
+              message.status == "failed" else { return }
+        let mediaType: String?
+        let mediaFile: String?
+        if let file = message.localImage { mediaType = "image"; mediaFile = file }
+        else if let file = message.videoFile { mediaType = "video"; mediaFile = file }
+        else if let file = message.audioFile { mediaType = "audio"; mediaFile = file }
+        else if let file = message.fileLocal { mediaType = "file"; mediaFile = file }
+        else { mediaType = nil; mediaFile = nil }
+        deleteMessage(conversationID: conversationID, messageID: messageID)
+        await send(to: conversationID, text: message.text, mediaFile: mediaFile, mediaType: mediaType, quote: nil, displayName: message.fileName)
+    }
+
     func deleteMessage(conversationID: String, messageID: String) {
         guard let index = conversations.firstIndex(where: { $0.id == conversationID }) else { return }
         conversations[index].messages.removeAll { $0.id == messageID }
@@ -1852,6 +1867,11 @@ struct MessageRow: View {
                 Button { UIPasteboard.general.string = message.text } label: { Label("复制", systemImage: "doc.on.doc") }
             }
             Button { onQuote(message) } label: { Label("引用", systemImage: "arrowshape.turn.up.left") }
+            if message.status == "failed" {
+                Button {
+                    Task { await store.retryMessage(conversationID: conversationID, messageID: message.id) }
+                } label: { Label("重发", systemImage: "arrow.clockwise") }
+            }
             if let image = loadedImage {
                 Button {
                     UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
