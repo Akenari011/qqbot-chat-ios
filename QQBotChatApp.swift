@@ -1494,6 +1494,7 @@ struct ChatView: View {
     @State private var menuMessage: ChatMessage?
     @State private var scrollTick = 0
     @State private var renderLimit = 100
+    @State private var showScrollButton = false
     @State private var showPins = false
     @State private var showKeyboardAlert = false
     @State private var keyboardText = ""
@@ -1789,6 +1790,23 @@ struct ChatView: View {
                     .padding(.horizontal, 12).padding(.vertical, 12)
                 }
                 .background(chatBackground)
+                .onScrollGeometryChange(for: Bool.self) { geometry in
+                    geometry.contentOffset.y + geometry.containerSize.height < geometry.contentSize.height - 120
+                } action: { _, below in
+                    showScrollButton = below
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    if showScrollButton, let last = conversation?.messages.last {
+                        Button {
+                            withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
+                        } label: {
+                            Image(systemName: "arrow.down").font(.system(size: 15, weight: .semibold))
+                                .frame(width: 38, height: 38)
+                                .glassEffect(.regular, in: Circle())
+                        }
+                        .padding(.trailing, 14).padding(.bottom, 10)
+                    }
+                }
                 .refreshable {
                     if conversation?.scene == "channel" {
                         await store.fetchHistory(conversationID: conversationID)
