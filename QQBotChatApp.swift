@@ -424,6 +424,40 @@ final class ChatStore {
         }
     }
 
+    func fetchHistory(conversationID: String) async {
+        guard let conversation = conversation(conversationID) else { return }
+        guard conversation.scene == "channel" else {
+            error = "QQ 官方未开放单聊/群聊历史消息接口，断线期间只能依赖 Resume 补发。"
+            return
+        }
+        let cid = conversationID.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? conversationID
+        do {
+            let raw = try await apiAny("/channels/" + cid + "/messages?limit=50")
+            guard let list = raw as? [[String: Any]] else { return }
+            var fetched: [ChatMessage] = []
+            for item in list {
+                guard let id = item["id"] as? String else { continue }
+                let author = item["author"] as? [String: Any] ?? [:]
+                let text = item["content"] as? String ?? ""
+                let timestamp = item["timestamp"] as? String ?? ""
+                let name = author["username"] as? String ?? "频道成员"
+                fetched.append(ChatMessage(id: id, text: text, timestamp: timestamp, fromBot: false, authorName: name))
+            }
+            guard let index = conversations.firstIndex(where: { $0.id == conversationID }) else { return }
+            let existing = Set(conversations[index].messages.map { $0.id })
+            let merged = conversations[index].messages + fetched.filter { !existing.contains($0.id) }
+            conversations[index].messages = merged.sorted { $0.date < $1.date }
+            if let last = conversations[index].messages.last {
+                conversations[index].lastText = last.summary
+                conversations[index].lastTimestamp = last.timestamp
+            }
+            saveConversations()
+            error = "已拉取 \(fetched.count) 条历史消息。"
+        } catch {
+            self.error = "历史消息拉取失败，可能需要频道权限。"
+        }
+    }
+
     func loadSchedules(channelID: String) async {
         let cid = channelID.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? channelID
         do {
@@ -1409,6 +1443,7 @@ struct ChatView: View {
                         Button { showSchedules = true } label: { Label("频道日程", systemImage: "calendar") }
                         Button { showPins = true; Task { await store.loadPins(conversationID: conversationID) } } label: { Label("置顶消息", systemImage: "pin") }
                         Button { keyboardText = ""; showKeyboardAlert = true } label: { Label("发送按钮消息", systemImage: "keyboard") }
+                        Button { Task { await store.fetchHistory(conversationID: conversationID) } } label: { Label("拉取历史消息", systemImage: "clock.arrow.circlepath") }
                     } label: { Image(systemName: "ellipsis.circle") }
                     .accessibilityLabel("频道工具")
                 }
