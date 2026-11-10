@@ -1445,7 +1445,7 @@ struct LoginView: View {
     let store: ChatStore
     @State private var username = ""
     @State private var password = ""
-    private let blue = Color(red: 0.20, green: 0.55, blue: 0.88)
+    private let blue = TGColor.accent
 
     var body: some View {
         VStack(spacing: 16) {
@@ -1495,7 +1495,7 @@ struct ConversationListView: View {
     @State private var showComposeHint = false
     @State private var editMode = false
     @State private var query = ""
-    private let blue = Color(red: 0.20, green: 0.55, blue: 0.88)
+    private let blue = TGColor.accent
 
     private var filtered: [Conversation] {
         let base = store.conversations.filter { store.showArchived || !($0.archived ?? false) }
@@ -1526,7 +1526,7 @@ struct ConversationListView: View {
                             NavigationLink(value: conversation.id) {
                                 ConversationRow(conversation: conversation, store: store)
                             }
-                            .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                            .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 18))
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                 Button(role: .destructive) {
                                     store.deleteConversation(conversation.id)
@@ -1587,7 +1587,7 @@ struct ConversationListView: View {
 struct ConversationRow: View {
     let conversation: Conversation
     let store: ChatStore
-    private let blue = Color(red: 0.20, green: 0.55, blue: 0.88)
+    private let blue = TGColor.accent
 
     private var avatarColors: [Color] {
         let palettes: [[Color]] = [
@@ -1609,8 +1609,9 @@ struct ConversationRow: View {
                 if let image = store.image(named: conversation.avatarPath) {
                     Image(uiImage: image).resizable().scaledToFill()
                 } else {
-                    Image(systemName: iconName)
-                        .font(.system(size: 26)).foregroundStyle(.white)
+                    Text(String(store.displayName(conversation).prefix(1)))
+                        .font(.system(size: 26, weight: .regular)).foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .background(LinearGradient(colors: avatarColors, startPoint: .topLeading, endPoint: .bottomTrailing))
                 }
             }
@@ -1620,31 +1621,41 @@ struct ConversationRow: View {
                 HStack(spacing: 4) {
                     Text(store.displayName(conversation))
                         .font(.system(size: 16, weight: .semibold)).lineLimit(1)
-                    if conversation.pinned == true {
-                        Image(systemName: "pin.fill").font(.system(size: 11)).foregroundStyle(.secondary)
-                    }
                     Spacer()
                     Text(conversation.lastDate, format: .dateTime.hour().minute())
-                        .font(.system(size: 14)).foregroundStyle(.secondary)
+                        .font(.system(size: 14)).foregroundStyle(TGColor.secondaryText)
                 }
-                HStack {
+                HStack(spacing: 6) {
                     Text(conversation.lastText.isEmpty ? " " : conversation.lastText)
-                        .font(.system(size: 15)).foregroundStyle(.secondary).lineLimit(1)
+                        .font(.system(size: 15)).foregroundStyle(TGColor.secondaryText).lineLimit(1)
                     Spacer()
+                    if conversation.pinned == true && conversation.unread == 0 {
+                        Image(systemName: "pin.fill").font(.system(size: 11))
+                            .foregroundStyle(.white)
+                            .frame(width: 20, height: 20)
+                            .background(Circle().fill(Color(red: 0xb6 / 255, green: 0xb6 / 255, blue: 0xbb / 255)))
+                    }
                     if conversation.unread > 0 {
-                        if conversation.muted == true {
-                            Circle().fill(Color.secondary.opacity(0.6)).frame(width: 8, height: 8)
-                        } else {
-                            Text("\(conversation.unread)")
-                                .font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
-                                .padding(.horizontal, 6).padding(.vertical, 2)
-                                .background(blue, in: Capsule())
-                        }
+                        Text("\(conversation.unread)")
+                            .font(.system(size: 12, weight: .semibold)).monospacedDigit()
+                            .foregroundStyle(.white)
+                            .frame(minWidth: 20, minHeight: 20)
+                            .background(Capsule().fill(conversation.muted == true
+                                ? Color(red: 0xb6 / 255, green: 0xb6 / 255, blue: 0xbb / 255)
+                                : TGColor.accent))
                     }
                 }
             }
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, 8)
+        .frame(height: 76)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(TGColor.separator)
+                .frame(height: 1.0 / UIScreen.main.scale)
+                .padding(.leading, 86)
+                .padding(.trailing, 16)
+        }
     }
 }
 
@@ -1682,7 +1693,7 @@ struct ChatView: View {
     @State private var showPins = false
     @State private var showKeyboardAlert = false
     @State private var keyboardText = ""
-    private let blue = Color(red: 0.20, green: 0.55, blue: 0.88)
+    private let blue = TGColor.accent
 
     private var conversation: Conversation? { store.conversation(conversationID) }
     private var visibleMessages: [ChatMessage] {
@@ -2223,7 +2234,7 @@ struct ComposerInput: View {
     @State private var showPhotoPicker = false
     @State private var showVideoPicker = false
     private let emojis = ["😀","😂","🥰","😎","🤔","😭","👍","👎","❤️","🎉","🔥","🌹","🍀","☀️","🌙","⭐️","✅","❌","🤝","🙏","😴","🤣","😅","🥳","😇","🤩","😋","🤗"]
-    private let blue = Color(red: 0.20, green: 0.55, blue: 0.88)
+    private let blue = TGColor.accent
 
     private var mentionMembers: [(String, String)] {
         guard let conversation = store.conversation(conversationID) else { return [] }
@@ -2421,6 +2432,14 @@ func isSameMessageGroup(_ a: ChatMessage, _ b: ChatMessage) -> Bool {
         && abs(a.date.timeIntervalSince(b.date)) < 600
 }
 
+// TG DefaultDayPresentationTheme.swift:56 defaultDayAccentColor = 0x0088ff
+enum TGColor {
+    static let accent = Color(red: 0, green: 0x88 / 255, blue: 1.0)
+    static let secondaryText = Color(red: 0x8e / 255, green: 0x8e / 255, blue: 0x93 / 255)
+    static let separator = Color(red: 0xc8 / 255, green: 0xc7 / 255, blue: 0xcc / 255)
+    static let pinnedRow = Color(red: 0xf7 / 255, green: 0xf7 / 255, blue: 0xf7 / 255)
+}
+
 // TG kCAMediaTimingFunctionSpring = CAMediaTimingFunction(0.380, 0.700, 0.125, 1.000)
 // It is an overdamped bezier, NOT a bouncy spring (CAAnimationUtils.swift:186).
 enum TGAnim {
@@ -2483,7 +2502,7 @@ struct MessageRow: View {
     private var replyProgress: CGFloat {
         min(1.0, max(0.0, -dragOffset / replyThreshold))
     }
-    private let blue = Color(red: 0.20, green: 0.55, blue: 0.88)
+    private let blue = TGColor.accent
 
     private var avatarLetter: String {
         let name = message.authorName.trimmingCharacters(in: .whitespaces)
@@ -2872,7 +2891,7 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var confirmClear = false
     @State private var bgItem: PhotosPickerItem?
-    private let blue = Color(red: 0.20, green: 0.55, blue: 0.88)
+    private let blue = TGColor.accent
 
     var body: some View {
         NavigationStack {
