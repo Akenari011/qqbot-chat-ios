@@ -168,6 +168,7 @@ final class ChatStore {
     private var lastAck = Date()
     private var shouldRun = false
     private var reconnectAttempt = 0
+    private var connecting = false
     private var networkMonitor: NWPathMonitor?
 
     private let imageCache = NSCache<NSString, UIImage>()
@@ -528,6 +529,16 @@ final class ChatStore {
         }
     }
 
+    func reconnectIfNeeded() {
+        guard shouldRun, socket == nil, !connecting else { return }
+        reconnectTask?.cancel()
+        log("前台恢复，尝试重连")
+        Task {
+            do { try await openSocket(resume: sessionID != nil && sequence != nil) }
+            catch { scheduleReconnect() }
+        }
+    }
+
     func reconnect() {
         guard shouldRun else { return }
         reconnectTask?.cancel()
@@ -603,6 +614,9 @@ final class ChatStore {
     }
 
     private func openSocket(resume: Bool) async throws {
+        guard !connecting else { return }
+        connecting = true
+        defer { connecting = false }
         try await refreshToken()
         let gateway = try await api("/gateway/bot")
         guard let address = gateway["url"] as? String, let url = URL(string: address), url.scheme == "wss" else { throw URLError(.badURL) }
@@ -1168,6 +1182,7 @@ extension UIImage {
 
 struct RootView: View {
     @State private var store = ChatStore()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
@@ -1179,6 +1194,9 @@ struct RootView: View {
         }
         .preferredColorScheme(store.appearance == "light" ? .light : (store.appearance == "dark" ? .dark : nil))
         .animation(.easeInOut(duration: 0.25), value: store.isLoggedIn)
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { store.reconnectIfNeeded() }
+        }
         .task { store.start() }
     }
 }
