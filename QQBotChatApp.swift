@@ -1731,7 +1731,12 @@ struct ChatView: View {
         let mergedBottom = next.map { isSameMessageGroup(message, $0) } ?? false
         if showDate {
             Text(dateHeaderString(message.date))
-                .font(.system(size: 11)).foregroundStyle(.secondary)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 6)
+                .frame(height: 22)
+                .background(Color.black.opacity(0.2), in: Capsule())
+                .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.vertical, 6)
         }
         MessageRow(
@@ -2134,7 +2139,7 @@ struct ChatView: View {
                     if showScrollButton {
                         Button {
                             showScrollButton = false
-                            withAnimation { proxy.scrollTo("chatBottom", anchor: .bottom) }
+                            withAnimation(TGAnim.scrollToBottom) { proxy.scrollTo("chatBottom", anchor: .bottom) }
                         } label: {
                             Image(systemName: "arrow.down").font(.system(size: 15, weight: .semibold))
                                 .frame(width: 38, height: 38)
@@ -2149,13 +2154,13 @@ struct ChatView: View {
                     }
                 }
                 .onChange(of: jumpTarget) { _, target in
-                    if let target { withAnimation { proxy.scrollTo(target, anchor: .center) }; jumpTarget = nil }
+                    if let target { withAnimation(TGAnim.scrollToMessage) { proxy.scrollTo(target, anchor: .top) }; jumpTarget = nil }
                 }
                 .onChange(of: conversation?.messages.count) { _, _ in
-                    withAnimation { proxy.scrollTo("chatBottom", anchor: .bottom) }
+                    withAnimation(TGAnim.scrollToMessage) { proxy.scrollTo("chatBottom", anchor: .bottom) }
                 }
                 .onChange(of: scrollTick) { _, _ in
-                    withAnimation { proxy.scrollTo("chatBottom", anchor: .bottom) }
+                    withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo("chatBottom", anchor: .bottom) }
                 }
                 .onAppear {
                     // Layout pass must finish before any programmatic scroll; otherwise
@@ -2198,6 +2203,7 @@ struct ChatView: View {
 }
 
 struct ComposerInput: View {
+    @Environment(\.colorScheme) private var colorScheme
     let store: ChatStore
     let conversationID: String
     let quoting: ChatMessage?
@@ -2235,29 +2241,30 @@ struct ComposerInput: View {
     var body: some View {
         VStack(spacing: 0) {
             if let quoting {
-                HStack(spacing: 8) {
+                HStack(alignment: .top, spacing: 0) {
                     RoundedRectangle(cornerRadius: 1).fill(blue)
-                        .frame(width: 2, height: 34)
-                    VStack(alignment: .leading, spacing: 2) {
+                        .frame(width: 2, height: 38)
+                    VStack(alignment: .leading, spacing: 1) {
                         Text(quoting.fromBot ? "引用自己" : quoting.authorName)
-                            .font(.system(size: 14, weight: .semibold)).foregroundStyle(blue)
+                            .font(.system(size: 14, weight: .medium)).foregroundStyle(blue)
                             .lineLimit(1)
                         Text(quoting.summary)
-                            .font(.system(size: 14)).foregroundStyle(.secondary)
+                            .font(.system(size: 14)).foregroundStyle(.primary)
                             .lineLimit(1)
                     }
+                    .padding(.leading, 8).padding(.top, 10).padding(.trailing, 44)
                     Spacer()
                     Button(action: onCancelQuote) {
                         Image(systemName: "xmark")
                             .font(.system(size: 12, weight: .bold))
                             .foregroundStyle(.secondary)
-                            .frame(width: 22, height: 22)
                     }
+                    .frame(width: 44, height: 44)
                     .accessibilityLabel("取消引用")
                 }
-                .padding(.horizontal, 11).padding(.vertical, 3)
-                .background(Color(uiColor: .secondarySystemBackground).opacity(0.55), in: RoundedRectangle(cornerRadius: 12))
-                .padding(.horizontal, 4).padding(.bottom, 6)
+                .frame(height: 52)
+                .padding(.leading, 12).padding(.top, 8).padding(.bottom, 6)
+                .transition(.opacity.animation(.easeInOut(duration: 0.15)))
             }
             HStack(spacing: 8) {
                 HStack(spacing: 2) {
@@ -2278,9 +2285,18 @@ struct ComposerInput: View {
                     }
                     .accessibilityLabel("附件")
 
-                    TextField("消息", text: $text, axis: .vertical).lineLimit(1...5)
-                        .focused($isFocused)
-                        .padding(.vertical, 9)
+                    ZStack(alignment: .leading) {
+                        if text.isEmpty {
+                            Text("消息").font(.system(size: 17))
+                                .foregroundStyle(colorScheme == .dark
+                                    ? Color.white.opacity(0.48) : Color.black.opacity(0.4))
+                        }
+                        TextField("", text: $text, axis: .vertical).lineLimit(1...5)
+                            .font(.system(size: 17))
+                            .focused($isFocused)
+                    }
+                    .padding(EdgeInsets(top: 5, leading: 12, bottom: 4, trailing: 11))
+                    .frame(minHeight: 40)
 
                     Button { showEmoji.toggle() } label: {
                         Image(systemName: showEmoji ? "face.smiling.fill" : "face.smiling")
@@ -2313,7 +2329,8 @@ struct ComposerInput: View {
                             .glassEffect(.regular, in: Circle())
                     } else {
                         Image(systemName: "arrow.up").font(.system(size: 16, weight: .bold)).foregroundStyle(.white)
-                            .frame(width: 40, height: 40).background(blue, in: Circle())
+                            .frame(width: 40, height: 40)
+                        .glassEffect(.regular.tint(Color(uiColor: .systemBlue)), in: Circle())
                     }
                 }
                 .disabled(store.sendingConversationID != nil)
@@ -2344,6 +2361,7 @@ struct ComposerInput: View {
                 .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("完成") { showMentions = false } } }
             }
         }
+        .animation(.easeInOut(duration: 0.1), value: text)
         .onChange(of: isFocused) { _, value in
             if value { onFocus() }
         }
@@ -2401,6 +2419,36 @@ func isSameMessageGroup(_ a: ChatMessage, _ b: ChatMessage) -> Bool {
     a.fromBot == b.fromBot
         && a.authorName == b.authorName
         && abs(a.date.timeIntervalSince(b.date)) < 600
+}
+
+// TG kCAMediaTimingFunctionSpring = CAMediaTimingFunction(0.380, 0.700, 0.125, 1.000)
+// It is an overdamped bezier, NOT a bouncy spring (CAAnimationUtils.swift:186).
+enum TGAnim {
+    static let springCurve = Animation.timingCurve(0.380, 0.700, 0.125, 1.000, duration: 0.4)
+    static let scrollToBottom = Animation.spring(duration: 1.15, bounce: 0.0)
+    static let scrollToMessage = Animation.spring(duration: 0.4, bounce: 0.0)
+    static let sendVertical = Animation.timingCurve(0.199, 0.011, 0.279, 0.910, duration: 0.3)
+}
+
+// TG DefaultDayPresentationTheme: outgoing gradient 0x57b2e0 -> 0x0088ff, incoming pure white.
+func tgOutgoingFill() -> LinearGradient {
+    LinearGradient(
+        colors: [Color(red: 0x57 / 255, green: 0xb2 / 255, blue: 0xe0 / 255),
+                 Color(red: 0x00 / 255, green: 0x88 / 255, blue: 1.0)],
+        startPoint: .topLeading, endPoint: .bottomTrailing
+    )
+}
+
+struct TGDoubleCheck: View {
+    let color: Color
+    var body: some View {
+        ZStack(alignment: .leading) {
+            Image(systemName: "checkmark").font(.system(size: 11, weight: .semibold))
+            Image(systemName: "checkmark").font(.system(size: 11, weight: .semibold)).offset(x: 6)
+        }
+        .foregroundStyle(color)
+        .frame(width: 17, height: 11)
+    }
 }
 
 func messageBubbleRadii(fromBot: Bool, mergedTop: Bool, mergedBottom: Bool) -> RectangleCornerRadii {
@@ -2483,9 +2531,6 @@ struct MessageRow: View {
         HStack(alignment: .bottom, spacing: 8) {
             if message.fromBot { Spacer(minLength: 48) } else { avatar }
             VStack(alignment: message.fromBot ? .trailing : .leading, spacing: 4) {
-                if !message.fromBot {
-                    Text(message.authorName).font(.system(size: 11)).foregroundStyle(.secondary).padding(.horizontal, 4)
-                }
                 if message.quotedText != nil || message.quotedID != nil {
                     HStack(spacing: 6) {
                         RoundedRectangle(cornerRadius: 1.5).fill(blue.opacity(0.7)).frame(width: 3)
@@ -2544,7 +2589,7 @@ struct MessageRow: View {
                     if value.translation.width < -replyThreshold {
                         onSwipeReply(message)
                     }
-                    withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) { dragOffset = 0 }
+                    withAnimation(.timingCurve(0.380, 0.700, 0.125, 1.000, duration: 0.3)) { dragOffset = 0 }
                 }
         )
         .contextMenu {
@@ -2653,7 +2698,7 @@ struct MessageRow: View {
                 .foregroundStyle(message.fromBot ? Color.white : Color.primary)
                 .padding(.horizontal, 11).padding(.vertical, 6)
                 .background(
-                    message.fromBot ? blue : Color(uiColor: .systemBackground),
+                    message.fromBot ? AnyShapeStyle(tgOutgoingFill()) : AnyShapeStyle(Color.white),
                     in: UnevenRoundedRectangle(
                         cornerRadii: messageBubbleRadii(
                             fromBot: message.fromBot,
@@ -2685,19 +2730,30 @@ struct MessageRow: View {
             }
             .frame(width: 160, height: 160)
         } else {
-            VStack(alignment: .trailing, spacing: 3) {
-                Text(markdownText(message.text.isEmpty ? "[空消息]" : message.text))
-                    .font(.system(size: 17 * store.fontScale))
-                    .foregroundStyle(message.fromBot ? Color.white : Color.primary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                HStack(spacing: 3) {
-                    Text(message.date, format: .dateTime.hour().minute())
-                        .font(.system(size: 11))
-                        .foregroundStyle(message.fromBot ? Color.white.opacity(0.75) : Color.secondary)
-                    statusIcon
+            VStack(alignment: .leading, spacing: 3) {
+                if !message.fromBot {
+                    Text(message.authorName)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color(red: 0, green: 0x88 / 255, blue: 1.0))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                ZStack(alignment: .bottomTrailing) {
+                    Text(markdownText(message.text.isEmpty ? "[空消息]" : message.text))
+                        .font(.system(size: 17 * store.fontScale))
+                        .foregroundStyle(message.fromBot ? Color.white : Color.primary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.trailing, 46)
+                    HStack(spacing: 3) {
+                        Text(message.date, format: .dateTime.hour().minute())
+                            .font(.system(size: 11))
+                        if message.fromBot {
+                            TGDoubleCheck(color: .white.opacity(0.9))
+                        }
+                    }
+                    .foregroundStyle(message.fromBot ? Color.white.opacity(0.75) : Color.secondary)
                 }
             }
-            .padding(.horizontal, 12).padding(.vertical, 9)
+            .padding(.horizontal, 11).padding(.vertical, 6)
             .background(
                 UnevenRoundedRectangle(
                     cornerRadii: messageBubbleRadii(
@@ -2706,7 +2762,7 @@ struct MessageRow: View {
                         mergedBottom: mergedBottom
                     )
                 )
-                .fill(message.fromBot ? blue : Color(uiColor: .systemBackground))
+                .fill(message.fromBot ? AnyShapeStyle(tgOutgoingFill()) : AnyShapeStyle(Color.white))
             )
             if let reactions = message.reactions, !reactions.isEmpty {
                 HStack(spacing: 4) {
