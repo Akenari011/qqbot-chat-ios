@@ -9,3 +9,6 @@ botpy.log
 
 build/
 
+deliverables/
+device-build/
+

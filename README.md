@@ -1,4 +1,6 @@
-# QQBot Chat iOS 原型
+# QQBot Chat iOS 独立测试版
+
+当前 iOS App 已改为直接连接 QQ 官方 API 和 WebSocket，不依赖下文的可选 Python 网关。打开 App 输入自己的 AppID 和 AppSecret（保存到系统 Keychain），连接成功后先从 QQ 向机器人发消息，再在 App 回复。当前仅显示最近收到的一个会话，切换来源会清空当前内存列表；暂无本地消息持久化、自动重连或 token 刷新。锁屏和后台可能暂停连接。无签名 IPA 需使用侧载工具重签后安装，支持 iOS 17+。下文服务端方案保留作为可选历史实现。
 
 ## 产品模式
 
