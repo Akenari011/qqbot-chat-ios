@@ -28,7 +28,13 @@ jobs:
       - name: Check Xcode scheme
         run: xcodebuild -list -project QQBotChat.xcodeproj
       - name: Build iOS Simulator app
-        run: xcodebuild -project QQBotChat.xcodeproj -scheme QQBotChat -sdk iphonesimulator -configuration Debug -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+        run: xcodebuild -project QQBotChat.xcodeproj -scheme QQBotChat -sdk iphonesimulator -configuration Debug -derivedDataPath build -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+      - name: Upload Simulator app
+        uses: actions/upload-artifact@v4
+        with:
+          name: QQBotChat-Simulator
+          path: build/Build/Products/Debug-iphonesimulator/QQBotChat.app
+          if-no-files-found: error
 
   container-smoke:
     runs-on: ubuntu-latest

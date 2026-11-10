@@ -133,6 +133,22 @@ struct ConversationView: View {
         }
     }
     private var header: some View { HStack(spacing: 12) { Image(systemName: "bubble.left.and.bubble.right.fill").foregroundStyle(.white).frame(width: 42, height: 42).background(blue.gradient, in: Circle()); VStack(alignment: .leading, spacing: 3) { Text("QQ 机器人").font(.system(size: 16, weight: .semibold)); Text("机器人账号 · 在线").font(.system(size: 12)).foregroundStyle(.secondary) }; Spacer(); Button { model.logout() } label: { Image(systemName: "rectangle.portrait.and.arrow.right").foregroundStyle(blue) }.accessibilityLabel("退出登录") }.padding(14).overlay(alignment: .bottom) { Divider() } }
-    private func messageRow(_ message: ChatMessage) -> some View { HStack(alignment: .bottom, spacing: 7) { if message.fromBot { Image(systemName: "bubble.left.and.bubble.right.fill").font(.system(size: 12)).foregroundStyle(.white).frame(width: 30, height: 30).background(blue.gradient, in: Circle()) } else { Spacer(minLength: 42) }; VStack(alignment: message.fromBot ? .leading : .trailing, spacing: 4) { Text(message.fromBot ? "QQ 机器人" : message.authorName).font(.system(size: 11)).foregroundStyle(.secondary).padding(.horizontal, 4); Text(message.text).font(.system(size: 16)).foregroundStyle(message.fromBot ? Color.primary : Color.white).padding(.horizontal, 12).padding(.vertical, 9).background(message.fromBot ? Color(uiColor: .systemBackground) : blue, in: RoundedRectangle(cornerRadius: 16)); Text(message.date, format: .dateTime.hour().minute()).font(.system(size: 10)).foregroundStyle(.tertiary).padding(.horizontal, 4) }; if message.fromBot { Spacer(minLength: 42) } }.frame(maxWidth: .infinity, alignment: message.fromBot ? .leading : .trailing) }
+    private func messageRow(_ message: ChatMessage) -> some View {
+        HStack(alignment: .bottom, spacing: 7) {
+            if message.fromBot { Spacer(minLength: 42) }
+            VStack(alignment: message.fromBot ? .trailing : .leading, spacing: 4) {
+                Text(message.fromBot ? "我 · QQ 机器人" : (message.authorName.isEmpty ? "QQ 用户" : message.authorName))
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                Text(message.text)
+                    .font(.system(size: 16))
+                    .foregroundStyle(message.fromBot ? Color.white : Color.primary)
+                    .padding(.horizontal, 12).padding(.vertical, 9)
+                    .background(message.fromBot ? blue : Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 16))
+                Text(message.date, format: .dateTime.hour().minute())
+                    .font(.system(size: 10)).foregroundStyle(.tertiary)
+            }
+            if !message.fromBot { Spacer(minLength: 42) }
+        }.frame(maxWidth: .infinity, alignment: message.fromBot ? .trailing : .leading)
+    }
     private var composer: some View { HStack(spacing: 10) { TextField("消息", text: $model.draft, axis: .vertical).lineLimit(1...5).padding(10).background(Color(uiColor: .secondarySystemBackground), in: Capsule()); Button { Task { await model.send() } } label: { Image(systemName: model.sending ? "hourglass" : "arrow.up").font(.system(size: 16, weight: .bold)).foregroundStyle(.white).frame(width: 36, height: 36).background(blue, in: Circle()) }.disabled(model.sending || model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty).accessibilityLabel("发送消息") }.padding(12).overlay(alignment: .top) { Divider() } }
 }
