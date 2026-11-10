@@ -755,15 +755,35 @@ final class ChatStore {
             }
         }
         let pattern = "<@!?([A-Za-z0-9_-]+)>"
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return raw }
-        let ns = raw as NSString
         var result = raw
-        for match in regex.matches(in: raw, range: NSRange(location: 0, length: ns.length)).reversed() {
-            let id = ns.substring(with: match.range(at: 1))
-            let name = map[id] ?? "成员 " + String(id.suffix(6))
-            result = result.replacingOccurrences(of: ns.substring(with: match.range), with: "@" + name)
+        if let regex = try? NSRegularExpression(pattern: pattern) {
+            let ns = raw as NSString
+            for match in regex.matches(in: raw, range: NSRange(location: 0, length: ns.length)).reversed() {
+                let id = ns.substring(with: match.range(at: 1))
+                let name = map[id] ?? "成员 " + String(id.suffix(6))
+                result = result.replacingOccurrences(of: ns.substring(with: match.range), with: "@" + name)
+            }
+        }
+        let facePattern = "<faceType=[0-9]+,faceId=\"?([0-9]+)\"?[^>]*>"
+        if let faceRegex = try? NSRegularExpression(pattern: facePattern) {
+            let ns = result as NSString
+            for match in faceRegex.matches(in: result, range: NSRange(location: 0, length: ns.length)).reversed() {
+                let idString = ns.substring(with: match.range(at: 1))
+                let emoji = faceMap[Int(idString) ?? -1] ?? "🙂"
+                result = result.replacingOccurrences(of: ns.substring(with: match.range), with: emoji)
+            }
         }
         return result
+    }
+
+    private var faceMap: [Int: String] {
+        [
+            0: "🙂", 1: "😕", 2: "😍", 3: "😳", 4: "😎", 5: "😢", 6: "😊", 7: "🤐",
+            8: "😴", 9: "😭", 10: "😅", 11: "😡", 12: "😜", 13: "😁", 14: "😲",
+            15: "😞", 16: "😎", 17: "😰", 18: "😫", 19: "🤢", 20: "😏", 21: "😷",
+            22: "😵", 23: "😱", 24: "😨", 25: "😪", 26: "😌", 27: "😚", 28: "😝",
+            29: "😓", 30: "😄", 31: "😃", 32: "😀", 33: "😉", 34: "😣", 35: "😤"
+        ]
     }
 
     private func handleIncoming(kind: String, payload: [String: Any]) {
