@@ -1731,7 +1731,7 @@ struct ChatView: View {
     }
 
     @ViewBuilder
-    private func messageCell(visible: [ChatMessage], index: Int, proxy: ScrollViewProxy) -> some View {
+    private func messageCell(visible: [ChatMessage], index: Int, proxy: ScrollViewProxy, availableWidth: CGFloat) -> some View {
         let message = visible[index]
         let previous: ChatMessage? = index > 0 ? visible[index - 1] : nil
         let next: ChatMessage? = index < visible.count - 1 ? visible[index + 1] : nil
@@ -1761,6 +1761,7 @@ struct ChatView: View {
             onLongPress: handleLongPress,
             onForward: handleForward,
             onSwipeReply: handleSwipeReply,
+            availableWidth: availableWidth,
             mergedTop: mergedTop,
             mergedBottom: mergedBottom
         )
@@ -2107,6 +2108,8 @@ struct ChatView: View {
     }
 
     private var messageList: some View {
+        GeometryReader { listGeo in
+            let availableWidth = listGeo.size.width - 24
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 0) {
@@ -2122,7 +2125,7 @@ struct ChatView: View {
                                     .padding(.top, 40)
                             }
                             ForEach(Array(visibleMessages.enumerated()), id: \.element.id) { index, _ in
-                                messageCell(visible: visibleMessages, index: index, proxy: proxy)
+                                messageCell(visible: visibleMessages, index: index, proxy: proxy, availableWidth: availableWidth)
                             }
                         }
                         Color.clear.frame(height: 1).id("chatBottom")
@@ -2181,6 +2184,7 @@ struct ChatView: View {
                     }
                 }
             }
+        }
     }
 
     private var composer: some View {
@@ -2498,6 +2502,7 @@ struct MessageRow: View {
     let onLongPress: (ChatMessage) -> Void
     let onForward: (ChatMessage) -> Void
     let onSwipeReply: (ChatMessage) -> Void
+    let availableWidth: CGFloat
     var mergedTop = false
     var mergedBottom = false
     @State private var audioPlayer: AVAudioPlayer?
@@ -2506,6 +2511,10 @@ struct MessageRow: View {
     @State private var videoThumbnail: UIImage?
     @State private var dragOffset: CGFloat = 0
     private let replyThreshold: CGFloat = 72
+    // TG ChatMessageItemCommon.swift: width-36 (<=500pt) else width*0.85
+    private var bubbleMaxWidth: CGFloat {
+        availableWidth <= 500 ? max(1, availableWidth - 36) : max(1, floor(availableWidth * 0.85))
+    }
     private var replyProgress: CGFloat {
         min(1.0, max(0.0, -dragOffset / replyThreshold))
     }
@@ -2554,8 +2563,8 @@ struct MessageRow: View {
     }
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            if message.fromBot { Spacer(minLength: 48) } else { avatar }
+        HStack(alignment: .bottom, spacing: 4) {
+            if message.fromBot { Spacer(minLength: 3) } else { avatar }
             VStack(alignment: message.fromBot ? .trailing : .leading, spacing: 4) {
                 if message.quotedText != nil || message.quotedID != nil {
                     HStack(spacing: 6) {
@@ -2592,7 +2601,8 @@ struct MessageRow: View {
                     .padding(.trailing, 6).padding(.bottom, 6)
                 }
             }
-            if message.fromBot { Color.clear.frame(width: 34, height: 34) } else { Spacer(minLength: 48) }
+            .frame(maxWidth: bubbleMaxWidth, alignment: message.fromBot ? .trailing : .leading)
+            if message.fromBot { Color.clear.frame(width: 34, height: 34) } else { Spacer(minLength: 3) }
         }
         .frame(maxWidth: .infinity, alignment: message.fromBot ? .trailing : .leading)
         .offset(x: dragOffset)
@@ -2771,7 +2781,7 @@ struct MessageRow: View {
                     Text(markdownText(message.text.isEmpty ? "[空消息]" : message.text))
                         .font(.system(size: 17 * store.fontScale))
                         .foregroundStyle(message.fromBot ? Color.white : Color.primary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(maxWidth: bubbleMaxWidth - 22, alignment: .leading)
                         .padding(.trailing, 46)
                     HStack(spacing: 3) {
                         Text(message.date, format: .dateTime.hour().minute())
