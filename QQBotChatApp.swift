@@ -1527,43 +1527,41 @@ struct ConversationListView: View {
                                 ConversationRow(conversation: conversation, store: store)
                             }
                             .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 18))
+                            .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                                Button { store.markRead(conversation.id) } label: { Label("已读", systemImage: "checkmark.circle") }
+                                    .tint(Color(red: 0xbc / 255, green: 0xbc / 255, blue: 0xc3 / 255))
+                                Button { store.togglePin(conversation.id) } label: { Label("置顶", systemImage: "pin") }
+                                    .tint(Color(red: 0, green: 0xc9 / 255, blue: 0))
+                            }
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                Button(role: .destructive) {
-                                    store.deleteConversation(conversation.id)
-                                } label: { Label("删除", systemImage: "trash") }
-                                Button {
-                                    store.togglePin(conversation.id)
-                                } label: {
-                                    Label(conversation.pinned == true ? "取消置顶" : "置顶", systemImage: "pin")
-                                }
-                                .tint(.orange)
-                                Button {
-                                    store.toggleMute(conversation.id)
-                                } label: {
-                                    Label(conversation.muted == true ? "取消静音" : "静音", systemImage: "bell.slash")
-                                }
-                                .tint(.gray)
-                                Button {
-                                    store.toggleArchive(conversation.id)
-                                } label: {
-                                    Label(conversation.archived == true ? "取消归档" : "归档", systemImage: "archivebox")
-                                }
-                                .tint(.blue)
+                                Button { store.toggleMute(conversation.id) } label: { Label("静音", systemImage: "bell.slash") }
+                                    .tint(Color(red: 0xf0 / 255, green: 0x9a / 255, blue: 0x37 / 255))
+                                Button(role: .destructive) { store.deleteConversation(conversation.id) } label: { Label("删除", systemImage: "trash") }
+                                    .tint(Color(red: 0xff / 255, green: 0x38 / 255, blue: 0x24 / 255))
+                                Button { store.toggleArchive(conversation.id) } label: { Label("归档", systemImage: "archivebox") }
+                                    .tint(Color(red: 0xbc / 255, green: 0xbc / 255, blue: 0xc3 / 255))
                             }
                         }
                     }
                     .listStyle(.plain)
                 }
             }
-            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索会话和消息")
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "搜索")
             .navigationTitle("聊天")
-            .navigationBarTitleDisplayMode(.large)
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("聊天").font(.system(size: 17, weight: .semibold)).monospacedDigit()
+                }
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button(editMode ? "完成" : "编辑") { editMode.toggle() }
+                        .frame(height: 44)
+                        .background(.ultraThinMaterial, in: Capsule())
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button { showComposeHint = true } label: { Image(systemName: "square.and.pencil") }
+                        .frame(width: 44, height: 44)
+                        .background(.ultraThinMaterial, in: Capsule())
                         .accessibilityLabel("新建消息")
                 }
             }
@@ -1833,7 +1831,7 @@ struct ChatView: View {
                             }
                         }
                     }
-                    .frame(width: 30, height: 30)
+                    .frame(width: 34, height: 34)
                     .clipShape(Circle())
                     VStack(alignment: .leading, spacing: 0) {
                         Text(conversation.map { store.displayName($0) } ?? "聊天")
@@ -2534,7 +2532,7 @@ struct MessageRow: View {
                 letterAvatar
             }
         }
-        .frame(width: 30, height: 30)
+        .frame(width: 34, height: 34)
         .clipShape(Circle())
     }
 
@@ -2542,7 +2540,7 @@ struct MessageRow: View {
         Text(avatarLetter)
             .font(.system(size: 13, weight: .semibold))
             .foregroundStyle(.white)
-            .frame(width: 30, height: 30)
+            .frame(width: 34, height: 34)
             .background(LinearGradient(colors: avatarColors, startPoint: .topLeading, endPoint: .bottomTrailing), in: Circle())
     }
 
@@ -2581,7 +2579,7 @@ struct MessageRow: View {
                     }.padding(.horizontal, 4)
                 }
             }
-            if message.fromBot { Color.clear.frame(width: 30, height: 30) } else { Spacer(minLength: 48) }
+            if message.fromBot { Color.clear.frame(width: 34, height: 34) } else { Spacer(minLength: 48) }
         }
         .frame(maxWidth: .infinity, alignment: message.fromBot ? .trailing : .leading)
         .offset(x: dragOffset)
@@ -2736,8 +2734,8 @@ struct MessageRow: View {
                         Text("点击打开或分享").font(.system(size: 11)).foregroundStyle(.secondary)
                     }
                 }
-                .padding(12)
-                .background(Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 15))
+                .padding(.top, 15).padding(.leading, 9).padding(.bottom, 15).padding(.trailing, 12)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 16))
             }
         } else if message.imageURL != nil || message.videoURL != nil || message.audioURL != nil {
             ZStack {
