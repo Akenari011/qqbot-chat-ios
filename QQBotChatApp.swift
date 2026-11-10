@@ -156,7 +156,7 @@ final class ChatStore {
     var chatBackground: String = UserDefaults.standard.string(forKey: "chatBackground") ?? "default" {
         didSet { UserDefaults.standard.set(chatBackground, forKey: "chatBackground") }
     }
-    var mentionSyntax: Bool = (UserDefaults.standard.object(forKey: "mentionSyntax") as? Bool) ?? true {
+    var mentionSyntax: Bool = (UserDefaults.standard.object(forKey: "mentionSyntax") as? Bool) ?? false {
         didSet { UserDefaults.standard.set(mentionSyntax, forKey: "mentionSyntax") }
     }
     var chatBackgroundImage: String? = UserDefaults.standard.string(forKey: "chatBackgroundImage")
@@ -2341,7 +2341,7 @@ struct SettingsView: View {
                         Text("绿色").tag("green")
                         Text("蓝色").tag("blue")
                     }
-                    Toggle("实验性 @ 标记（发送 <@openid>）", isOn: Binding(get: { store.mentionSyntax }, set: { store.mentionSyntax = $0 }))
+                    Toggle("实验性 @ 标记（QQ 群不解析，默认关闭）", isOn: Binding(get: { store.mentionSyntax }, set: { store.mentionSyntax = $0 }))
                     PhotosPicker(selection: $bgItem, matching: .images, photoLibrary: .shared()) {
                         Text("选择聊天背景图")
                     }
