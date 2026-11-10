@@ -24,8 +24,9 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     var videoFile: String?
     var audioURL: String?
     var audioFile: String?
+    var quotedText: String?
 
-    init(id: String, text: String, timestamp: String, fromBot: Bool, authorName: String, imageURL: String? = nil, localImage: String? = nil, videoURL: String? = nil, videoFile: String? = nil, audioURL: String? = nil, audioFile: String? = nil) {
+    init(id: String, text: String, timestamp: String, fromBot: Bool, authorName: String, imageURL: String? = nil, localImage: String? = nil, videoURL: String? = nil, videoFile: String? = nil, audioURL: String? = nil, audioFile: String? = nil, quotedText: String? = nil) {
         self.id = id
         self.text = text
         self.timestamp = timestamp
@@ -37,6 +38,7 @@ struct ChatMessage: Identifiable, Codable, Equatable {
         self.videoFile = videoFile
         self.audioURL = audioURL
         self.audioFile = audioFile
+        self.quotedText = quotedText
     }
 
     var isImage: Bool { imageURL != nil || localImage != nil }
@@ -435,26 +437,26 @@ final class ChatStore {
 
     // MARK: - Sending
 
-    func sendText(_ text: String, to id: String) async {
+    func sendText(_ text: String, to id: String, quote: ChatMessage? = nil) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        await send(to: id, text: trimmed, mediaFile: nil, mediaType: nil)
+        await send(to: id, text: trimmed, mediaFile: nil, mediaType: nil, quote: quote)
     }
 
-    func sendImage(_ data: Data, to id: String) async {
+    func sendImage(_ data: Data, to id: String, quote: ChatMessage? = nil) async {
         guard let image = UIImage(data: data) else { error = "无法读取所选图片。"; return }
         let resized = image.scaled(maxDimension: 1600)
         guard let jpeg = resized.jpegData(compressionQuality: 0.82), let name = saveMedia(jpeg, ext: "jpg") else { error = "图片处理失败。"; return }
-        await send(to: id, text: "", mediaFile: name, mediaType: "image")
+        await send(to: id, text: "", mediaFile: name, mediaType: "image", quote: quote)
     }
 
-    func sendVideo(_ data: Data, to id: String) async {
+    func sendVideo(_ data: Data, to id: String, quote: ChatMessage? = nil) async {
         guard data.count <= 20 * 1024 * 1024 else { error = "视频不能超过 20MB，请先裁剪。"; return }
         guard let name = saveMedia(data, ext: "mp4") else { error = "视频保存失败。"; return }
-        await send(to: id, text: "", mediaFile: name, mediaType: "video")
+        await send(to: id, text: "", mediaFile: name, mediaType: "video", quote: quote)
     }
 
-    private func send(to id: String, text: String, mediaFile: String?, mediaType: String?) async {
+    private func send(to id: String, text: String, mediaFile: String?, mediaType: String?, quote: ChatMessage?) async {
         guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
         guard !conversations[index].replyID.isEmpty else { error = "请先从 QQ 给机器人发送一条消息，再回复。"; return }
         guard sendingConversationID == nil else { return }
@@ -462,6 +464,7 @@ final class ChatStore {
         defer { sendingConversationID = nil; error = nil }
         let conversation = conversations[index]
         var body: [String: Any] = ["msg_id": conversation.replyID, "msg_seq": conversation.replySeq + 1]
+        if let quote { body["message_reference"] = ["message_id": quote.id] }
         if let mediaFile, let mediaType {
             guard let fileURL = mediaURL(named: mediaFile), let data = try? Data(contentsOf: fileURL) else { error = "媒体文件读取失败。"; return }
             let type = mediaType == "video" ? 2 : 1
@@ -489,7 +492,8 @@ final class ChatStore {
                     id: messageID, text: text, timestamp: ISO8601DateFormatter().string(from: .now),
                     fromBot: true, authorName: "QQ 机器人",
                     localImage: mediaType == "image" ? mediaFile : nil,
-                    videoFile: mediaType == "video" ? mediaFile : nil
+                    videoFile: mediaType == "video" ? mediaFile : nil,
+                    quotedText: quote?.summary
                 )
                 conversations[current].messages.append(message)
                 conversations[current].lastText = message.summary
@@ -525,6 +529,16 @@ final class ChatStore {
     private func saveConversations() {
         guard let data = try? JSONEncoder().encode(conversations) else { return }
         try? data.write(to: stateURL, options: .atomic)
+    }
+
+    func deleteMessage(conversationID: String, messageID: String) {
+        guard let index = conversations.firstIndex(where: { $0.id == conversationID }) else { return }
+        conversations[index].messages.removeAll { $0.id == messageID }
+        if let last = conversations[index].messages.last {
+            conversations[index].lastText = last.summary
+            conversations[index].lastTimestamp = last.timestamp
+        }
+        saveConversations()
     }
 
     func clearHistory() {
@@ -718,6 +732,7 @@ struct ChatView: View {
     @State private var draft = ""
     @State private var pickerItem: PhotosPickerItem?
     @State private var videoItem: PhotosPickerItem?
+    @State private var quoting: ChatMessage?
     private let blue = Color(red: 0.20, green: 0.55, blue: 0.88)
 
     private var conversation: Conversation? { store.conversation(conversationID) }
@@ -734,8 +749,13 @@ struct ChatView: View {
                 ScrollView {
                     LazyVStack(spacing: 12) {
                         if let conversation {
-                            ForEach(conversation.messages) { message in
-                                MessageRow(store: store, message: message).id(message.id)
+                            ForEach(Array(conversation.messages.enumerated()), id: \.element.id) { index, message in
+                                if index == 0 || !Calendar.current.isDate(message.date, inSameDayAs: conversation.messages[index - 1].date) {
+                                    Text(message.date, format: .dateTime.year().month().day())
+                                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                                        .padding(.vertical, 6)
+                                }
+                                MessageRow(store: store, conversationID: conversationID, message: message, onQuote: { quoting = $0 }).id(message.id)
                             }
                         }
                     }
@@ -787,34 +807,54 @@ struct ChatView: View {
     }
 
     private var composer: some View {
-        HStack(spacing: 8) {
-            PhotosPicker(selection: $pickerItem, matching: .images, photoLibrary: .shared()) {
-                Image(systemName: "photo.on.rectangle").font(.system(size: 20)).foregroundStyle(blue)
-            }
-            .accessibilityLabel("发送图片")
-            PhotosPicker(selection: $videoItem, matching: .videos, photoLibrary: .shared()) {
-                Image(systemName: "video").font(.system(size: 20)).foregroundStyle(blue)
-            }
-            .accessibilityLabel("发送视频")
-            TextField("消息", text: $draft, axis: .vertical).lineLimit(1...5)
-                .padding(.horizontal, 12).padding(.vertical, 9)
-                .background(Color(uiColor: .secondarySystemBackground), in: Capsule())
-            Button {
-                let text = draft
-                draft = ""
-                Task { await store.sendText(text, to: conversationID) }
-            } label: {
-                if store.sendingConversationID == conversationID {
-                    ProgressView().frame(width: 34, height: 34)
-                } else {
-                    Image(systemName: "arrow.up").font(.system(size: 16, weight: .bold)).foregroundStyle(.white)
-                        .frame(width: 34, height: 34).background(blue, in: Circle())
+        VStack(spacing: 0) {
+            if let quoting {
+                HStack(spacing: 8) {
+                    RoundedRectangle(cornerRadius: 1.5).fill(blue).frame(width: 3, height: 34)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(quoting.fromBot ? "引用自己" : quoting.authorName)
+                            .font(.system(size: 11, weight: .semibold)).foregroundStyle(blue)
+                        Text(quoting.summary).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    Spacer()
+                    Button { self.quoting = nil } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    }
                 }
+                .padding(.horizontal, 12).padding(.vertical, 6)
+                .background(Color(uiColor: .secondarySystemBackground))
             }
-            .disabled(store.sendingConversationID != nil || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            .accessibilityLabel("发送消息")
+            HStack(spacing: 8) {
+                PhotosPicker(selection: $pickerItem, matching: .images, photoLibrary: .shared()) {
+                    Image(systemName: "photo.on.rectangle").font(.system(size: 20)).foregroundStyle(blue)
+                }
+                .accessibilityLabel("发送图片")
+                PhotosPicker(selection: $videoItem, matching: .videos, photoLibrary: .shared()) {
+                    Image(systemName: "video").font(.system(size: 20)).foregroundStyle(blue)
+                }
+                .accessibilityLabel("发送视频")
+                TextField("消息", text: $draft, axis: .vertical).lineLimit(1...5)
+                    .padding(.horizontal, 12).padding(.vertical, 9)
+                    .background(Color(uiColor: .secondarySystemBackground), in: Capsule())
+                Button {
+                    let text = draft
+                    let quote = quoting
+                    draft = ""
+                    quoting = nil
+                    Task { await store.sendText(text, to: conversationID, quote: quote) }
+                } label: {
+                    if store.sendingConversationID == conversationID {
+                        ProgressView().frame(width: 34, height: 34)
+                    } else {
+                        Image(systemName: "arrow.up").font(.system(size: 16, weight: .bold)).foregroundStyle(.white)
+                            .frame(width: 34, height: 34).background(blue, in: Circle())
+                    }
+                }
+                .disabled(store.sendingConversationID != nil || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .accessibilityLabel("发送消息")
+            }
+            .padding(.horizontal, 12).padding(.vertical, 10)
         }
-        .padding(.horizontal, 12).padding(.vertical, 10)
         .background(Color(uiColor: .systemBackground))
         .overlay(alignment: .top) { Divider() }
     }
@@ -822,9 +862,13 @@ struct ChatView: View {
 
 struct MessageRow: View {
     let store: ChatStore
+    let conversationID: String
     let message: ChatMessage
+    let onQuote: (ChatMessage) -> Void
     @State private var audioPlayer: AVAudioPlayer?
     @State private var playingAudio = false
+    @State private var previewImage: UIImage?
+    @State private var showPreview = false
     private let blue = Color(red: 0.20, green: 0.55, blue: 0.88)
 
     var body: some View {
@@ -834,6 +878,14 @@ struct MessageRow: View {
                 if !message.fromBot {
                     Text(message.authorName).font(.system(size: 11)).foregroundStyle(.secondary).padding(.horizontal, 4)
                 }
+                if let quoted = message.quotedText {
+                    HStack(spacing: 6) {
+                        RoundedRectangle(cornerRadius: 1.5).fill(blue.opacity(0.7)).frame(width: 3)
+                        Text(quoted).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(2)
+                    }
+                    .padding(.horizontal, 8).padding(.vertical, 5)
+                    .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 8))
+                }
                 content
                 Text(message.date, format: .dateTime.hour().minute())
                     .font(.system(size: 10)).foregroundStyle(.tertiary).padding(.horizontal, 4)
@@ -841,6 +893,32 @@ struct MessageRow: View {
             if !message.fromBot { Spacer(minLength: 48) }
         }
         .frame(maxWidth: .infinity, alignment: message.fromBot ? .trailing : .leading)
+        .contextMenu {
+            if !message.text.isEmpty {
+                Button { UIPasteboard.general.string = message.text } label: { Label("复制", systemImage: "doc.on.doc") }
+            }
+            Button { onQuote(message) } label: { Label("引用", systemImage: "arrowshape.turn.up.left") }
+            Button(role: .destructive) {
+                store.deleteMessage(conversationID: conversationID, messageID: message.id)
+            } label: { Label("删除", systemImage: "trash") }
+        }
+        .fullScreenCover(isPresented: $showPreview) {
+            ZStack {
+                Color.black.ignoresSafeArea()
+                if let previewImage {
+                    Image(uiImage: previewImage).resizable().scaledToFit()
+                }
+                VStack {
+                    HStack {
+                        Spacer()
+                        Button { showPreview = false } label: {
+                            Image(systemName: "xmark.circle.fill").font(.system(size: 28)).foregroundStyle(.white.opacity(0.9))
+                        }.padding()
+                    }
+                    Spacer()
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -849,6 +927,7 @@ struct MessageRow: View {
             Image(uiImage: image).resizable().scaledToFit()
                 .frame(maxWidth: 220, maxHeight: 280)
                 .clipShape(RoundedRectangle(cornerRadius: 14))
+                .onTapGesture { previewImage = image; showPreview = true }
         } else if let name = message.videoFile, let url = store.mediaURL(named: name) {
             VideoPlayer(player: AVPlayer(url: url))
                 .frame(width: 240, height: 180)
@@ -874,12 +953,22 @@ struct MessageRow: View {
             }
             .frame(width: 160, height: 160)
         } else {
-            Text(message.text.isEmpty ? "[空消息]" : message.text)
+            Text(markdownText(message.text.isEmpty ? "[空消息]" : message.text))
                 .font(.system(size: 16))
                 .foregroundStyle(message.fromBot ? Color.white : Color.primary)
                 .padding(.horizontal, 12).padding(.vertical, 9)
                 .background(message.fromBot ? blue : Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 16))
         }
+    }
+
+    private func markdownText(_ text: String) -> AttributedString {
+        if let attributed = try? AttributedString(
+            markdown: text,
+            options: AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        ) {
+            return attributed
+        }
+        return AttributedString(text)
     }
 
     private func toggleAudio(_ url: URL) {
