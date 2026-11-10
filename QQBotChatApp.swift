@@ -252,7 +252,7 @@ final class ChatStore {
                     if resume, let sid = sessionID, let seq = sequence {
                         try await packet(["op": 6, "d": ["token": "QQBot " + token, "session_id": sid, "seq": seq]])
                     } else {
-                        try await packet(["op": 2, "d": ["token": "QQBot " + token, "intents": (1 << 25) | (1 << 30), "shard": [0, 1], "properties": [:]]])
+                        try await packet(["op": 2, "d": ["token": "QQBot " + token, "intents": (1 << 25) | (1 << 26) | (1 << 30), "shard": [0, 1], "properties": [:]]])
                     }
                     startHeartbeat(interval: interval)
                 } else if op == 11 {
@@ -275,6 +275,8 @@ final class ChatStore {
                     status = "已连接"
                 } else if ["C2C_MESSAGE_CREATE", "GROUP_AT_MESSAGE_CREATE", "GROUP_MESSAGE_CREATE"].contains(kind) {
                     handleIncoming(kind: kind, payload: payload)
+                } else if kind == "INTERACTION_CREATE" {
+                    handleInteraction(payload)
                 }
             }
         } catch {
@@ -375,6 +377,26 @@ final class ChatStore {
         if let remote {
             downloadMedia(remote, target: target, messageID: id, kind: isVideo ? "video" : (isAudio ? "audio" : "image"))
         }
+    }
+
+    private func handleInteraction(_ payload: [String: Any]) {
+        let data = payload["data"] as? [String: Any] ?? [:]
+        let resolved = data["resolved"] as? [String: Any] ?? [:]
+        let label = resolved["button_data"] as? String ?? resolved["button_id"] as? String ?? "按钮"
+        let groupTarget = payload["group_openid"] as? String
+        let userTarget = payload["user_openid"] as? String
+        let isGroup = groupTarget != nil
+        let target = groupTarget ?? userTarget ?? ""
+        guard !target.isEmpty else { return }
+        let eventID = payload["id"] as? String ?? UUID().uuidString
+        let message = ChatMessage(
+            id: "interaction-" + eventID,
+            text: "点击了按钮：" + label,
+            timestamp: ISO8601DateFormatter().string(from: .now),
+            fromBot: false,
+            authorName: "按钮交互"
+        )
+        append(message, target: target, scene: isGroup ? "group" : "c2c", name: isGroup ? "群聊 " + String(target.suffix(6)) : "QQ 用户", markUnread: activeConversationID != target, replyID: nil)
     }
 
     private func append(_ message: ChatMessage, target: String, scene: String, name: String, markUnread: Bool, replyID: String?) {
@@ -650,6 +672,7 @@ struct RootView: View {
             }
         }
         .preferredColorScheme(store.appearance == "light" ? .light : (store.appearance == "dark" ? .dark : nil))
+        .animation(.easeInOut(duration: 0.25), value: store.isLoggedIn)
         .task { store.start() }
     }
 }
@@ -857,6 +880,7 @@ struct ChatView: View {
                     .padding(.horizontal, 12).padding(.vertical, 12)
                 }
                 .background(Color(uiColor: .secondarySystemBackground))
+                .animation(.easeOut(duration: 0.2), value: conversation?.messages.count)
                 .onChange(of: conversation?.messages.count) { _, _ in
                     if let last = conversation?.messages.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
                 }
