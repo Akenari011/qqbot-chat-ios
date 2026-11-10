@@ -1620,6 +1620,7 @@ struct ChatView: View {
         }
         .navigationTitle(conversation?.name ?? "聊天")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .tabBar)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 HStack(spacing: 8) {
@@ -1870,6 +1871,7 @@ struct ChatView: View {
                         }
                     }
                     .padding(.horizontal, 12).padding(.vertical, 12)
+                    Color.clear.frame(height: 1).id("chatBottom")
                 }
                 .background(chatBackground)
                 .onScrollGeometryChange(for: Bool.self) { geometry in
@@ -1878,9 +1880,10 @@ struct ChatView: View {
                     showScrollButton = below
                 }
                 .overlay(alignment: .bottomTrailing) {
-                    if showScrollButton, let last = conversation?.messages.last {
+                    if showScrollButton {
                         Button {
-                            withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
+                            showScrollButton = false
+                            withAnimation { proxy.scrollTo("chatBottom", anchor: .bottom) }
                         } label: {
                             Image(systemName: "arrow.down").font(.system(size: 15, weight: .semibold))
                                 .frame(width: 38, height: 38)
