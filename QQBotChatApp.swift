@@ -1152,9 +1152,39 @@ struct MessageRow: View {
     @State private var showPreview = false
     private let blue = Color(red: 0.20, green: 0.55, blue: 0.88)
 
+    private var avatarLetter: String {
+        let name = message.authorName.trimmingCharacters(in: .whitespaces)
+        if let last = name.last { return String(last) }
+        return "?"
+    }
+
+    private var avatarColors: [Color] {
+        let palettes: [[Color]] = [
+            [.blue, .cyan], [.purple, .pink], [.orange, .yellow],
+            [.green, .mint], [.indigo, .blue], [.pink, .orange]
+        ]
+        let sum = message.authorName.unicodeScalars.reduce(0) { $0 + Int($1.value) }
+        return palettes[sum % palettes.count]
+    }
+
+    private var avatar: some View {
+        Text(avatarLetter)
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: 30, height: 30)
+            .background(LinearGradient(colors: avatarColors, startPoint: .topLeading, endPoint: .bottomTrailing), in: Circle())
+    }
+
+    private var botAvatar: some View {
+        Image(systemName: "bubble.left.and.bubble.right.fill")
+            .font(.system(size: 12)).foregroundStyle(.white)
+            .frame(width: 30, height: 30)
+            .background(blue.gradient, in: Circle())
+    }
+
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            if message.fromBot { Spacer(minLength: 48) }
+            if message.fromBot { Spacer(minLength: 48) } else { avatar }
             VStack(alignment: message.fromBot ? .trailing : .leading, spacing: 4) {
                 if !message.fromBot {
                     Text(message.authorName).font(.system(size: 11)).foregroundStyle(.secondary).padding(.horizontal, 4)
@@ -1189,7 +1219,7 @@ struct MessageRow: View {
                     }.padding(.horizontal, 4)
                 }
             }
-            if !message.fromBot { Spacer(minLength: 48) }
+            if !message.fromBot { Spacer(minLength: 48) } else { botAvatar }
         }
         .frame(maxWidth: .infinity, alignment: message.fromBot ? .trailing : .leading)
         .contextMenu {
