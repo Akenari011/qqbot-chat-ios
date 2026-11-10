@@ -6,6 +6,7 @@ import Network
 import UIKit
 import AVKit
 import AVFoundation
+import UniformTypeIdentifiers
 
 @main
 struct QQBotChatApp: App {
@@ -24,11 +25,13 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     var videoFile: String?
     var audioURL: String?
     var audioFile: String?
+    var fileLocal: String?
+    var fileName: String?
     var quotedText: String?
     var buttons: [String]?
     var status: String?
 
-    init(id: String, text: String, timestamp: String, fromBot: Bool, authorName: String, imageURL: String? = nil, localImage: String? = nil, videoURL: String? = nil, videoFile: String? = nil, audioURL: String? = nil, audioFile: String? = nil, quotedText: String? = nil, buttons: [String]? = nil, status: String? = nil) {
+    init(id: String, text: String, timestamp: String, fromBot: Bool, authorName: String, imageURL: String? = nil, localImage: String? = nil, videoURL: String? = nil, videoFile: String? = nil, audioURL: String? = nil, audioFile: String? = nil, fileLocal: String? = nil, fileName: String? = nil, quotedText: String? = nil, buttons: [String]? = nil, status: String? = nil) {
         self.id = id
         self.text = text
         self.timestamp = timestamp
@@ -40,6 +43,8 @@ struct ChatMessage: Identifiable, Codable, Equatable {
         self.videoFile = videoFile
         self.audioURL = audioURL
         self.audioFile = audioFile
+        self.fileLocal = fileLocal
+        self.fileName = fileName
         self.quotedText = quotedText
         self.buttons = buttons
         self.status = status
@@ -48,10 +53,12 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     var isImage: Bool { imageURL != nil || localImage != nil }
     var isVideo: Bool { videoURL != nil || videoFile != nil }
     var isAudio: Bool { audioURL != nil || audioFile != nil }
+    var isFile: Bool { fileLocal != nil }
     var summary: String {
         if isImage { return "[图片]" }
         if isVideo { return "[视频]" }
         if isAudio { return "[语音]" }
+        if isFile { return "[文件] " + (fileName ?? "") }
         return text
     }
     var date: Date { ISO8601DateFormatter().date(from: timestamp) ?? .now }
@@ -524,7 +531,14 @@ final class ChatStore {
         await send(to: id, text: "", mediaFile: name, mediaType: "audio", quote: quote)
     }
 
-    private func send(to id: String, text: String, mediaFile: String?, mediaType: String?, quote: ChatMessage?) async {
+    func sendFile(_ data: Data, name: String, to id: String) async {
+        guard data.count <= 20 * 1024 * 1024 else { error = "文件不能超过 20MB。"; return }
+        let ext = (name as NSString).pathExtension
+        guard let saved = saveMedia(data, ext: ext.isEmpty ? "bin" : ext) else { error = "文件保存失败。"; return }
+        await send(to: id, text: "", mediaFile: saved, mediaType: "file", quote: nil, displayName: name)
+    }
+
+    private func send(to id: String, text: String, mediaFile: String?, mediaType: String?, quote: ChatMessage?, displayName: String? = nil) async {
         guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
         guard !conversations[index].replyID.isEmpty else { error = "请先从 QQ 给机器人发送一条消息，再回复。"; return }
         guard sendingConversationID == nil else { return }
@@ -538,6 +552,8 @@ final class ChatStore {
             localImage: mediaType == "image" ? mediaFile : nil,
             videoFile: mediaType == "video" ? mediaFile : nil,
             audioFile: mediaType == "audio" ? mediaFile : nil,
+            fileLocal: mediaType == "file" ? mediaFile : nil,
+            fileName: mediaType == "file" ? displayName : nil,
             quotedText: quote?.summary, status: "sending"
         )
         conversations[index].messages.append(pending)
@@ -553,10 +569,12 @@ final class ChatStore {
             switch mediaType {
             case "video": type = 2; ext = "mp4"
             case "audio": type = 3; ext = "m4a"
+            case "file": type = 4; ext = (displayName as NSString?)?.pathExtension ?? "bin"
             default: type = 1; ext = "jpg"
             }
+            let uploadName = mediaType == "file" ? (displayName ?? "file.bin") : "media." + ext
             do {
-                let info = try await uploadMedia(data, fileType: type, fileName: "media." + ext, target: id, scene: conversation.scene)
+                let info = try await uploadMedia(data, fileType: type, fileName: uploadName, target: id, scene: conversation.scene)
                 body["msg_type"] = 7
                 body["content"] = ""
                 body["media"] = ["file_info": info]
@@ -564,6 +582,7 @@ final class ChatStore {
                 switch mediaType {
                 case "video": self.error = "视频上传失败，请确认小于 20MB 且机器人有富媒体权限。"
                 case "audio": self.error = "语音上传失败，QQ 语音消息可能只接受 silk 编码。"
+                case "file": self.error = "文件上传失败，请确认小于 20MB 且机器人有文件权限。"
                 default: self.error = "图片上传失败，请确认小于 10MB 且机器人有富媒体权限。"
                 }
                 if let current = conversations.firstIndex(where: { $0.id == id }),
@@ -588,7 +607,8 @@ final class ChatStore {
                 conversations[current].messages[mi] = ChatMessage(
                     id: messageID, text: old.text, timestamp: old.timestamp, fromBot: true,
                     authorName: old.authorName, localImage: old.localImage, videoFile: old.videoFile,
-                    audioFile: old.audioFile, quotedText: old.quotedText, buttons: old.buttons, status: "sent"
+                    audioFile: old.audioFile, fileLocal: old.fileLocal, fileName: old.fileName,
+                    quotedText: old.quotedText, buttons: old.buttons, status: "sent"
                 )
                 conversations[current].replySeq += 1
                 saveConversations()
@@ -850,6 +870,7 @@ struct ChatView: View {
     @State private var recorder: AVAudioRecorder?
     @State private var recording = false
     @State private var showEmoji = false
+    @State private var showFileImporter = false
     private let emojis = ["😀","😂","🥰","😎","🤔","😭","👍","👎","❤️","🎉","🔥","🌹","🍀","☀️","🌙","⭐️","✅","❌","🤝","🙏","😴","🤣","😅","🥳","😇","🤩","😋","🤗"]
     private let blue = Color(red: 0.20, green: 0.55, blue: 0.88)
 
@@ -919,6 +940,13 @@ struct ChatView: View {
                 }
                 pickerItem = nil
             }
+        }
+        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.item], allowsMultipleSelection: false) { result in
+            guard case .success(let urls) = result, let url = urls.first else { return }
+            let access = url.startAccessingSecurityScopedResource()
+            defer { if access { url.stopAccessingSecurityScopedResource() } }
+            guard let data = try? Data(contentsOf: url) else { return }
+            Task { await store.sendFile(data, name: url.lastPathComponent, to: conversationID) }
         }
         .onChange(of: videoItem) { _, item in
             guard let item else { return }
@@ -997,6 +1025,10 @@ struct ChatView: View {
                         .font(.system(size: 20)).foregroundStyle(blue)
                 }
                 .accessibilityLabel("表情")
+                Button { showFileImporter = true } label: {
+                    Image(systemName: "paperclip").font(.system(size: 20)).foregroundStyle(blue)
+                }
+                .accessibilityLabel("发送文件")
                 Button { toggleRecording() } label: {
                     Image(systemName: recording ? "stop.circle.fill" : "mic.fill")
                         .font(.system(size: 20))
@@ -1143,6 +1175,18 @@ struct MessageRow: View {
                 .foregroundStyle(message.fromBot ? Color.white : Color.primary)
                 .padding(.horizontal, 12).padding(.vertical, 9)
                 .background(message.fromBot ? blue : Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 16))
+            }
+        } else if let name = message.fileLocal, let url = store.mediaURL(named: name) {
+            ShareLink(item: url) {
+                HStack(spacing: 10) {
+                    Image(systemName: "doc.fill").font(.system(size: 24)).foregroundStyle(blue)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(message.fileName ?? "文件").font(.system(size: 14, weight: .medium)).lineLimit(1)
+                        Text("点击打开或分享").font(.system(size: 11)).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(12)
+                .background(Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 14))
             }
         } else if message.imageURL != nil || message.videoURL != nil || message.audioURL != nil {
             ZStack {
