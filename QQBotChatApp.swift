@@ -851,7 +851,9 @@ final class ChatStore {
                 }
             }
         }
-        log("收到消息 kind=" + kind + " target=" + String(target.suffix(6)))
+        let authorID = author["id"] as? String ?? ""
+        let memberOpenID = author["member_openid"] as? String ?? ""
+        log("收到消息 kind=" + kind + " target=" + String(target.suffix(6)) + " authorID=" + String(authorID.suffix(6)) + " member=" + String(memberOpenID.suffix(6)))
         let message = ChatMessage(
             id: id, text: content, timestamp: timestamp, fromBot: false, authorName: authorName,
             imageURL: (!isVideo && !isAudio) ? remote : nil,
@@ -1893,7 +1895,7 @@ struct ComposerInput: View {
             NavigationStack {
                 List(mentionMembers, id: \.0) { member in
                     Button("@" + member.1) {
-                        text += store.mentionSyntax ? "<@" + member.0 + "> " : "@" + member.1 + " "
+                        text += store.mentionSyntax ? "<@!" + member.0 + "> " : "@" + member.1 + " "
                         showMentions = false
                     }
                 }
