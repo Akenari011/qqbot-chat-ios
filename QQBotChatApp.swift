@@ -128,6 +128,7 @@ final class ChatStore {
     var guildMembers: [String: [String]] = [:]
     var schedules: [String] = []
     var pins: [String] = []
+    var reactionUsers: [String] = []
     var appearance: String = UserDefaults.standard.string(forKey: "appearance") ?? "system" {
         didSet { UserDefaults.standard.set(appearance, forKey: "appearance") }
     }
@@ -283,6 +284,40 @@ final class ChatStore {
             error = "未找到该频道所属服务器。"
         } catch {
             self.error = "公告发布失败，可能需要频道权限。"
+        }
+    }
+
+    func deleteAnnounce(conversationID: String, messageID: String) async {
+        guard conversation(conversationID)?.scene == "channel" else {
+            error = "公告仅支持频道。"
+            return
+        }
+        do {
+            if guilds.isEmpty { await loadGuilds() }
+            for guild in guilds {
+                let raw = try await apiAny("/guilds/" + guild.id + "/channels")
+                if let list = raw as? [[String: Any]], list.contains(where: { ($0["id"] as? String) == conversationID }) {
+                    _ = try await apiAny("/guilds/" + guild.id + "/announces/" + messageID, method: "DELETE")
+                    error = "已取消公告。"
+                    return
+                }
+            }
+            error = "未找到该频道所属服务器。"
+        } catch {
+            self.error = "取消公告失败，可能需要频道权限。"
+        }
+    }
+
+    func loadReactionUsers(conversationID: String, messageID: String) async {
+        guard conversation(conversationID)?.scene == "channel" else { return }
+        let cid = conversationID.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? conversationID
+        do {
+            let raw = try await apiAny("/channels/" + cid + "/messages/" + messageID + "/reactions/1/128077?limit=20")
+            if let dict = raw as? [String: Any], let users = dict["users"] as? [[String: Any]] {
+                reactionUsers = users.compactMap { $0["username"] as? String }
+            }
+        } catch {
+            self.error = "点赞用户获取失败。"
         }
     }
 
@@ -1460,6 +1495,7 @@ struct MessageRow: View {
     @State private var showPreview = false
     @State private var editing = false
     @State private var editText = ""
+    @State private var showReactionUsers = false
     private let blue = Color(red: 0.20, green: 0.55, blue: 0.88)
 
     private var avatarLetter: String {
@@ -1570,12 +1606,27 @@ struct MessageRow: View {
                     Task { await store.publishAnnounce(conversationID: conversationID, messageID: message.id) }
                 } label: { Label("设为公告", systemImage: "megaphone") }
                 Button {
+                    Task { await store.deleteAnnounce(conversationID: conversationID, messageID: message.id) }
+                } label: { Label("取消公告", systemImage: "megaphone.slash") }
+                Button {
+                    showReactionUsers = true
+                    Task { await store.loadReactionUsers(conversationID: conversationID, messageID: message.id) }
+                } label: { Label("点赞用户", systemImage: "person.2") }
+                Button {
                     Task { await store.recallMessage(conversationID: conversationID, messageID: message.id) }
                 } label: { Label("撤回", systemImage: "arrow.uturn.backward") }
             }
             Button(role: .destructive) {
                 store.deleteMessage(conversationID: conversationID, messageID: message.id)
             } label: { Label("删除", systemImage: "trash") }
+        }
+        .sheet(isPresented: $showReactionUsers) {
+            NavigationStack {
+                List(store.reactionUsers, id: \.self) { name in Text(name) }
+                    .navigationTitle("点赞用户")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("完成") { showReactionUsers = false } } }
+            }
         }
         .alert("编辑消息", isPresented: $editing) {
             TextField("内容", text: $editText)
@@ -1777,6 +1828,10 @@ struct SettingsView: View {
                     }
                 } footer: {
                     Text("退出后需重新输入 AppID 与 AppSecret。")
+                }
+                Section("关于") {
+                    LabeledContent("版本", value: (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "-") + " (" + (Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "-") + ")")
+                    LabeledContent("Bundle ID", value: Bundle.main.bundleIdentifier ?? "-")
                 }
                 Section("说明") {
                     Text("本 App 直接连接 QQ 官方机器人接口。锁屏或长时间后台会暂停连接，重新打开后自动重连。")
