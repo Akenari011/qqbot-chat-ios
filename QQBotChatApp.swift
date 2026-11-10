@@ -215,7 +215,6 @@ final class ChatStore {
         shouldRun = true
         log("登录开始 appId=" + username)
         do {
-            try await refreshToken(force: true)
             try await openSocket(resume: false)
             isLoggedIn = true
             error = nil
