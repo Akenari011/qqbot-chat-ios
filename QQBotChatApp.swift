@@ -796,8 +796,8 @@ struct ConversationListView: View {
                 }
             }
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索会话和消息")
-            .navigationTitle("QQ 机器人")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("聊天")
+            .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     HStack(spacing: 6) {
@@ -826,12 +826,21 @@ struct ConversationRow: View {
     let conversation: Conversation
     private let blue = Color(red: 0.20, green: 0.55, blue: 0.88)
 
+    private var avatarColors: [Color] {
+        let palettes: [[Color]] = [
+            [.blue, .cyan], [.purple, .pink], [.orange, .yellow],
+            [.green, .mint], [.indigo, .blue], [.pink, .orange]
+        ]
+        let sum = conversation.name.unicodeScalars.reduce(0) { $0 + Int($1.value) }
+        return palettes[sum % palettes.count]
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: conversation.isGroup ? "person.2.fill" : "person.fill")
                 .font(.system(size: 18)).foregroundStyle(.white)
                 .frame(width: 46, height: 46)
-                .background(conversation.isGroup ? Color.orange.gradient : blue.gradient, in: Circle())
+                .background(LinearGradient(colors: avatarColors, startPoint: .topLeading, endPoint: .bottomTrailing), in: Circle())
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 4) {
                     Text(conversation.name)
@@ -900,7 +909,12 @@ struct ChatView: View {
                     }
                     .padding(.horizontal, 12).padding(.vertical, 12)
                 }
-                .background(Color(uiColor: .secondarySystemBackground))
+                .background(
+                    LinearGradient(
+                        colors: [Color(uiColor: .systemBackground), Color(uiColor: .secondarySystemBackground)],
+                        startPoint: .top, endPoint: .bottom
+                    )
+                )
                 .animation(.easeOut(duration: 0.2), value: conversation?.messages.count)
                 .onChange(of: conversation?.messages.count) { _, _ in
                     if let last = conversation?.messages.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
@@ -1211,7 +1225,17 @@ struct MessageRow: View {
                 }
             }
             .padding(.horizontal, 12).padding(.vertical, 9)
-            .background(message.fromBot ? blue : Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 16))
+            .background(
+                UnevenRoundedRectangle(
+                    cornerRadii: RectangleCornerRadii(
+                        topLeading: 16,
+                        bottomLeading: message.fromBot ? 16 : 4,
+                        bottomTrailing: message.fromBot ? 4 : 16,
+                        topTrailing: 16
+                    )
+                )
+                .fill(message.fromBot ? blue : Color(uiColor: .systemBackground))
+            )
         }
     }
 
