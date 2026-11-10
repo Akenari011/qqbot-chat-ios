@@ -43,4 +43,23 @@ class BridgeTests(unittest.TestCase):
         self.loop.run_until_complete(bridge.on_c2c_message_create(message))
         self.assertEqual(captured, [])
 
+class LifecycleTests(unittest.IsolatedAsyncioTestCase):
+    async def test_run_closes_sdk_context(self):
+        from event_bridge import run
+        calls = []
+        class FakeBridge:
+            async def __aenter__(self):
+                calls.append('enter')
+                return self
+            async def __aexit__(self, *args):
+                calls.append('exit')
+            async def start(self, **kwargs):
+                calls.append('start')
+        env = {'QQBOT_APP_ID':'example', 'QQBOT_CLIENT_SECRET':'example',
+               'QQBOT_GATEWAY_KEY':'example', 'QQBOT_INTERNAL_INGEST_URL':'http://localhost/internal',
+               'QQBOT_CHAT_SCENE':'c2c', 'QQBOT_CHAT_TARGET_ID':'example'}
+        with patch.dict(os.environ, env), patch('event_bridge.EventBridge', FakeBridge):
+            await run()
+        self.assertEqual(calls, ['enter', 'start', 'exit'])
+
 if __name__ == "__main__": unittest.main()

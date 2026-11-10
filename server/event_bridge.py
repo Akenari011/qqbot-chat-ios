@@ -52,8 +52,8 @@ async def run():
     required = (app_id, secret, os.environ.get("QQBOT_GATEWAY_KEY"), os.environ.get("QQBOT_INTERNAL_INGEST_URL"), os.environ.get("QQBOT_CHAT_SCENE"), os.environ.get("QQBOT_CHAT_TARGET_ID"))
     if not all(required):
         raise RuntimeError("QQBOT_APP_ID, QQBOT_CLIENT_SECRET, QQBOT_GATEWAY_KEY, QQBOT_INTERNAL_INGEST_URL, QQBOT_CHAT_SCENE and QQBOT_CHAT_TARGET_ID are required")
-    client = EventBridge()
-    await client.start(appid=app_id, secret=secret)
+    async with EventBridge() as client:
+        await client.start(appid=app_id, secret=secret)
 
 def main():
     asyncio.run(run())
