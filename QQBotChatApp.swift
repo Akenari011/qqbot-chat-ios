@@ -943,6 +943,15 @@ final class ChatStore {
         saveConversations()
     }
 
+    func clearConversation(_ id: String) {
+        guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
+        conversations[index].messages.removeAll()
+        conversations[index].lastText = ""
+        conversations[index].unread = 0
+        saveConversations()
+        log("已清空会话 " + String(id.suffix(6)))
+    }
+
     func deleteConversation(_ id: String) {
         conversations.removeAll { $0.id == id }
         saveConversations()
@@ -1328,6 +1337,8 @@ struct LoginView: View {
 struct ConversationListView: View {
     let store: ChatStore
     @State private var showSettings = false
+    @State private var showComposeHint = false
+    @State private var editMode = false
     @State private var query = ""
     private let blue = Color(red: 0.20, green: 0.55, blue: 0.88)
 
@@ -1393,14 +1404,11 @@ struct ConversationListView: View {
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    HStack(spacing: 6) {
-                        Circle().fill(store.status == "已连接" ? Color.green : Color.orange).frame(width: 8, height: 8)
-                        Text(store.status).font(.system(size: 11)).foregroundStyle(.secondary)
-                    }
+                    Button(editMode ? "完成" : "编辑") { editMode.toggle() }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button { showSettings = true } label: { Image(systemName: "gearshape") }
-                        .accessibilityLabel("设置")
+                    Button { showComposeHint = true } label: { Image(systemName: "square.and.pencil") }
+                        .accessibilityLabel("新建消息")
                 }
             }
             .navigationDestination(for: String.self) { id in
@@ -1408,6 +1416,11 @@ struct ConversationListView: View {
             }
             .sheet(isPresented: $showSettings) {
                 SettingsView(store: store)
+            }
+            .alert("新建会话", isPresented: $showComposeHint) {
+                Button("知道了", role: .cancel) {}
+            } message: {
+                Text("QQ 机器人只能回复用户消息。请先在 QQ 里给机器人发一条消息，会话会自动出现在这里。")
             }
             .onAppear { store.activeConversationID = nil }
         }
@@ -1563,19 +1576,17 @@ struct ChatView: View {
                 }
             }
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button { showChatSearch = true } label: { Image(systemName: "magnifyingglass") }
-                    .accessibilityLabel("搜索本会话")
-            }
-            if conversation?.scene == "channel" {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Menu {
+                Menu {
+                    Button { showChatSearch = true } label: { Label("搜索", systemImage: "magnifyingglass") }
+                    if conversation?.scene == "channel" {
                         Button { showSchedules = true } label: { Label("频道日程", systemImage: "calendar") }
                         Button { showPins = true; Task { await store.loadPins(conversationID: conversationID) } } label: { Label("置顶消息", systemImage: "pin") }
                         Button { keyboardText = ""; showKeyboardAlert = true } label: { Label("发送按钮消息", systemImage: "keyboard") }
                         Button { Task { await store.fetchHistory(conversationID: conversationID) } } label: { Label("拉取历史消息", systemImage: "clock.arrow.circlepath") }
-                    } label: { Image(systemName: "ellipsis.circle") }
-                    .accessibilityLabel("频道工具")
-                }
+                    }
+                    Button(role: .destructive) { store.clearConversation(conversationID) } label: { Label("清空聊天", systemImage: "trash") }
+                } label: { Image(systemName: "ellipsis.circle") }
+                .accessibilityLabel("更多")
             }
         }
         .onAppear {
@@ -2374,9 +2385,26 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             List {
+                Section {
+                    HStack(spacing: 14) {
+                        ZStack {
+                            Circle().fill(blue.gradient)
+                            Text(String((store.botName.isEmpty ? "机" : store.botName).prefix(1)))
+                                .font(.system(size: 24, weight: .semibold)).foregroundStyle(.white)
+                        }
+                        .frame(width: 60, height: 60)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(store.botName.isEmpty ? "QQ 机器人" : store.botName)
+                                .font(.system(size: 18, weight: .semibold))
+                            Text(store.username.isEmpty ? "未登录" : "AppID " + store.username)
+                                .font(.system(size: 13)).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Circle().fill(store.status == "已连接" ? Color.green : Color.orange).frame(width: 10, height: 10)
+                    }
+                    .padding(.vertical, 6)
+                }
                 Section("账号") {
-                    LabeledContent("机器人", value: store.botName.isEmpty ? "未获取" : store.botName)
-                    LabeledContent("AppID", value: store.username.isEmpty ? "未登录" : store.username)
                     LabeledContent("连接状态", value: store.status)
                     Button("重新连接") { store.reconnect() }
                 }
