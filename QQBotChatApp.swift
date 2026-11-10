@@ -172,6 +172,7 @@ final class ChatStore {
     private var shouldRun = false
     private var reconnectAttempt = 0
     private var connecting = false
+    private var sendChain: Task<Void, Never>?
     private var networkMonitor: NWPathMonitor?
 
     private let imageCache = NSCache<NSString, UIImage>()
@@ -1042,9 +1043,18 @@ final class ChatStore {
     }
 
     private func send(to id: String, text: String, mediaFile: String?, mediaType: String?, quote: ChatMessage?, displayName: String? = nil, duration: Double? = nil) async {
+        let previous = sendChain
+        let task = Task { [weak self] in
+            _ = await previous?.value
+            await self?.performSend(to: id, text: text, mediaFile: mediaFile, mediaType: mediaType, quote: quote, displayName: displayName, duration: duration)
+        }
+        sendChain = task
+        await task.value
+    }
+
+    private func performSend(to id: String, text: String, mediaFile: String?, mediaType: String?, quote: ChatMessage?, displayName: String? = nil, duration: Double? = nil) async {
         guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
         guard !conversations[index].replyID.isEmpty else { error = "请先从 QQ 给机器人发送一条消息，再回复。"; return }
-        guard sendingConversationID == nil else { return }
         sendingConversationID = id
         defer { sendingConversationID = nil }
         let conversation = conversations[index]
