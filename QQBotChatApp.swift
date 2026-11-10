@@ -1496,6 +1496,7 @@ struct ChatView: View {
     @State private var scrollTick = 0
     @State private var renderLimit = 100
     @State private var showScrollButton = false
+    @State private var initialUnread = 0
     @State private var showPins = false
     @State private var showKeyboardAlert = false
     @State private var keyboardText = ""
@@ -1577,6 +1578,7 @@ struct ChatView: View {
         }
         .onAppear {
             store.activeConversationID = conversationID
+            initialUnread = conversation?.unread ?? 0
             store.markRead(conversationID)
         }
         .onDisappear {
@@ -1831,7 +1833,14 @@ struct ChatView: View {
                     if let last = conversation?.messages.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
                 }
                 .onAppear {
-                    if let last = conversation?.messages.last { proxy.scrollTo(last.id, anchor: .bottom) }
+                    if initialUnread > 0, let conversation, conversation.messages.count >= initialUnread {
+                        let target = conversation.messages[conversation.messages.count - initialUnread]
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                            withAnimation { proxy.scrollTo(target.id, anchor: .top) }
+                        }
+                    } else if let last = conversation?.messages.last {
+                        proxy.scrollTo(last.id, anchor: .bottom)
+                    }
                 }
             }
     }
