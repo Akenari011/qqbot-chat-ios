@@ -1811,10 +1811,8 @@ struct ChatView: View {
                                         .font(.system(size: 11)).foregroundStyle(.secondary)
                                         .padding(.vertical, 6)
                                 }
-                                let prevMessage = index > 0 ? visible[index - 1] : nil
-                                let nextMessage = index < visible.count - 1 ? visible[index + 1] : nil
-                                let mergedTop = prevMessage.map { $0.fromBot == message.fromBot && $0.authorName == message.authorName && message.date.timeIntervalSince($0.date) < 300 } ?? false
-                                let mergedBottom = nextMessage.map { $0.fromBot == message.fromBot && $0.authorName == message.authorName && $0.date.timeIntervalSince(message.date) < 300 } ?? false
+                                let mergedTop = index > 0 && isSameMessageGroup(visible[index - 1], message)
+                                let mergedBottom = index < visible.count - 1 && isSameMessageGroup(message, visible[index + 1])
                                 MessageRow(
                                     store: store,
                                     conversationID: conversationID,
@@ -2073,6 +2071,10 @@ struct ImagePreview: View {
             }
         }
     }
+}
+
+func isSameMessageGroup(_ a: ChatMessage, _ b: ChatMessage) -> Bool {
+    a.fromBot == b.fromBot && a.authorName == b.authorName && abs(a.date.timeIntervalSince(b.date)) < 300
 }
 
 struct MessageRow: View {
