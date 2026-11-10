@@ -1855,8 +1855,8 @@ struct ChatView: View {
             }
             .padding(.horizontal, 12).padding(.vertical, 10)
         }
-        .background(Color(uiColor: .systemBackground))
-        .overlay(alignment: .top) { Divider() }
+        .background(.clear)
+        .overlay(alignment: .top) { Divider().opacity(0.4) }
     }
 }
 
@@ -1902,8 +1902,8 @@ struct ComposerInput: View {
                 }
                 TextField("消息", text: $text, axis: .vertical).lineLimit(1...5)
                 .focused($isFocused)
-                .padding(.horizontal, 12).padding(.vertical, 9)
-                .background(Color(uiColor: .secondarySystemBackground), in: Capsule())
+                .padding(.horizontal, 14).padding(.vertical, 9)
+                .glassEffect(.regular, in: Capsule())
             Button {
                 let value = text
                 let quote = quoting
