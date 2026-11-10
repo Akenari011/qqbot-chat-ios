@@ -1463,6 +1463,7 @@ struct ChatView: View {
     @State private var playingVideoURL: URL?
     @State private var menuMessage: ChatMessage?
     @State private var scrollTick = 0
+    @State private var renderLimit = 100
     @State private var showPins = false
     @State private var showKeyboardAlert = false
     @State private var keyboardText = ""
@@ -1716,7 +1717,11 @@ struct ChatView: View {
                 ScrollView {
                     LazyVStack(spacing: 12) {
                         if let conversation {
-                            let visible = Array(conversation.messages.suffix(300))
+                            if conversation.messages.count > renderLimit {
+                                Button("加载更早消息") { renderLimit += 100 }
+                                    .font(.system(size: 12)).padding(.top, 8)
+                            }
+                            let visible = Array(conversation.messages.suffix(renderLimit))
                             if visible.isEmpty {
                                 Text("从 QQ 给机器人发一条消息开始聊天")
                                     .font(.system(size: 13)).foregroundStyle(.secondary)
