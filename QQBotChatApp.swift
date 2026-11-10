@@ -670,6 +670,7 @@ final class ChatStore {
                     reconnectAttempt = 0
                     status = "已连接"
                     log("READY session=" + String((sessionID ?? "").suffix(8)))
+                    retryFirstFailedMessage()
                 } else if kind == "RESUMED" {
                     reconnectAttempt = 0
                     status = "已连接"
@@ -1166,6 +1167,16 @@ final class ChatStore {
     private func saveConversations() {
         guard let data = try? JSONEncoder().encode(conversations) else { return }
         try? data.write(to: stateURL, options: .atomic)
+    }
+
+    private func retryFirstFailedMessage() {
+        for conversation in conversations {
+            if let message = conversation.messages.first(where: { $0.status == "failed" }) {
+                log("自动重试失败消息 " + String(message.id.suffix(6)))
+                Task { await retryMessage(conversationID: conversation.id, messageID: message.id) }
+                return
+            }
+        }
     }
 
     func retryMessage(conversationID: String, messageID: String) async {
@@ -2090,7 +2101,12 @@ struct MessageRow: View {
             Button { toggleAudio(url) } label: {
                 HStack(spacing: 8) {
                     Image(systemName: playingAudio ? "pause.circle.fill" : "play.circle.fill").font(.system(size: 22))
-                    Image(systemName: "waveform").font(.system(size: 16))
+                    HStack(spacing: 2) {
+                        ForEach(0..<8, id: \.self) { index in
+                            RoundedRectangle(cornerRadius: 1)
+                                .frame(width: 2, height: CGFloat(6 + (index * 5) % 14))
+                        }
+                    }
                     Text(playingAudio ? "播放中" : (message.duration.map { "语音 \(Int($0))″" } ?? "语音消息")).font(.system(size: 14))
                 }
                 .foregroundStyle(message.fromBot ? Color.white : Color.primary)
