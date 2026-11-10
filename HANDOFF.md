@@ -1,45 +1,65 @@
-# QQBot Chat iOS 交接
+# QQBot Chat iOS 交接文档
 
-## 当前产品方向
+## 产品方向
 
-用户要求全部集成到一个 iPhone App，不部署服务器。当前 SwiftUI App 直接调用 QQ 官方 API 获取 token，通过 URLSessionWebSocketTask 接收事件并回复文字。Python 网关、事件桥和容器配置保留为可选历史方案，当前 App 不使用它们。
+单机 iOS App，直接连接 QQ 官方机器人 API 与 WebSocket，不依赖自建后端。AppID/AppSecret 由用户在 App 内输入，保存在系统 Keychain。界面参考 Telegram iOS 的信息层级与交互，不复用其源码。
 
-## 使用方法
+## 安装与使用
 
-1. 下载 QQBotChat-unsigned-IPA 构建产物，解压外层 GitHub artifact ZIP，取得其中的 IPA。
-2. 使用自己的侧载/重签工具安装。无签名 IPA 无法直接由标准 iOS 安装；最低 iOS 17，真机 arm64。
-3. App 输入 QQ 机器人 AppID、AppSecret，点击登录；凭证存入系统 Keychain，没有硬编码用户密钥。
-4. 保持 App 前台并等待 QQ 连接就绪，从 QQ 私聊机器人（群聊需对应权限/事件）。
-5. 收到消息后在 App 输入文字回复；使用事件 message ID 和递增 msg_seq 作为被动回复上下文。
+1. 从 GitHub Actions 下载 `QQBotChat-unsigned-IPA` 产物，解压后得到 IPA。
+2. 用侧载/重签工具安装。最低 iOS 17，arm64；无签名 IPA 不能由标准 iOS 直接安装。
+3. 打开 App，输入机器人 AppID 与 AppSecret，等待状态变为“已连接”。
+4. 先在 QQ 给机器人发消息，建立会话与被动回复上下文，再在 App 内回复。
+5. 支持文本、图片、视频、语音、文件、Markdown、引用、按钮消息、表情。
+
+## 功能矩阵
+
+| 能力 | 状态 | 说明 |
+| --- | --- | --- |
+| 多会话列表 | 完成 | 未读数、置顶、滑动删除、搜索 |
+| 文本消息 | 完成 | 支持 Markdown 渲染、引用、长按复制/引用/删除 |
+| 图片消息 | 完成 | 发送压缩到 1600px，接收缓存，全屏查看 |
+| 视频消息 | 完成 | 选择视频，20MB 限制，内嵌播放 |
+| 语音消息 | 部分 | AAC/m4a 录音与发送；QQ 官方要求 silk，真机播放待验证 |
+| 文件消息 | 完成 | `file_type 4` 实测可用，支持选择、发送、分享 |
+| 按钮消息 | 完成 | 渲染 keyboard 按钮标签，接收 INTERACTION_CREATE 点击 |
+| 表情 | 完成 | 常用 emoji 面板 |
+| 会话搜索 | 完成 | 会话名、最后消息、全部历史内容 |
+| 深色模式 | 完成 | 跟随系统/浅色/深色 |
+| 发送状态 | 完成 | 发送中、成功、失败三态 |
+| 草稿 | 完成 | 按会话保存 |
+| 断线重连 | 完成 | 心跳 ACK、指数退避、Resume、网络恢复重连 |
+| 本地历史 | 完成 | 每会话持久化，最多保留全部消息 |
+| 频道消息 | 未实现 | 当前只处理 C2C 与群聊事件 |
+| 实时语音通话 | 不支持 | QQ Bot API 无此能力 |
 
 ## 实现位置
 
-- QQBotChatApp.swift：独立 App、Keychain、QQ token/API、WebSocket Identify/heartbeat、消息气泡。
-- QQBotChat.xcodeproj：iOS 工程，共享 scheme QQBotChat。
-- .github/workflows/ipa.yml：真机 Release 无签名编译、arm64 验证、Payload ZIP 打包及 SHA-256。
-- .github/workflows/ci.yml：模拟器编译、历史服务端测试和容器冒烟检查。
-- server/、compose.yaml：可选历史服务端实现，不是当前 App 的必需服务。
+- `QQBotChatApp.swift`：全部客户端代码（模型、网络、WebSocket、页面）。
+- `QQBotChat.xcodeproj`：iOS 工程与共享 scheme。
+- `.github/workflows/ipa.yml`：真机 Release 无签名编译、arm64 校验、IPA 打包、SHA-256。
+- `.github/workflows/ci.yml`：模拟器编译、服务端测试、容器冒烟。
+- `server/`、`compose.yaml`：可选历史服务端实现，当前 App 不使用。
+- `ROADMAP.md`：长期路线。
 
-## 已建立的验证证据
+## 验证证据
 
-- 用户授权凭证的真实 QQ 鉴权成功；临时 Python 协议探针收到单聊事件并发送回复，QQ 返回 HTTP 200 和消息 ID。
-- 这不是手机 App 实际验收，Swift URLSession 实现尚未在手机上验证收发。
-- 历史网关版模拟器构建及容器冒烟 CI 通过；Python 19 项测试通过（这些测试不覆盖独立 App 协议实现）。
-- 首次 IPA 的 arm64 编译成功，但 lipo 参数顺序错误导致打包失败；已修复。
-- 独立版首轮 Swift catch 属性遮蔽编译错误已修复，提交 85c0394；后续修复 lipo 参数顺序后首次成功打包，运行 42810570200。
-- 接手后完成第二轮稳定性改造（提交 34834a7、873e14f）：心跳 ACK 检测、指数退避自动重连、token 到期刷新、按会话本地历史持久化（最近 200 条）、补全 CFBundle 版本号与 UILaunchScreen。真机编译、arm64 验证、IPA 打包与上传全部通过：https://github.com/Lbcheng1145/qqbot-chat-ios/actions/runs/42811457751
-- 最终产物 QQBotChat-unsigned.ipa：SHA-256 4cd918ff1729370fa95c451e3c316e04b1b07e0ff3ebbc93e991196f4c2e745d，大小 118989 字节，Bundle org.example.qqbotchat，版本 1.0(1)，最低 iOS 17.0，Info.plist 含 UILaunchScreen。已下载并逐项校验。
+- 真机编译、arm64 架构校验、IPA 打包与 Info.plist 校验均通过（每次推送触发）。
+- 当前产物：`deliverables/QQBotChat-unsigned.ipa`，SHA-256 e837885fd419f5767c62605c6d548eda12513c05794b8c5b80d94da8bbec6f1a，289,504 字节。
+- 真实 QQ 协议层（Python 探针）已验证：access_token 鉴权、WebSocket READY、单聊事件接收、文本回复、图片 base64 上传、文件上传。
+- 未验证：App 内 Swift WebSocket 的真实收发、语音 m4a 是否被 QQ 接受、真机 Keychain 与权限弹窗。
 
-## 已知限制及后续优先项
+## 已知限制
 
-- 当前只显示最近收到的一个会话；切换来源会加载该会话独立历史，但没有会话列表 UI，不能手动切换或新建会话。
-- 已实现自动重连、token 到期前刷新和 heartbeat ACK 超时检测；尚未实现 Gateway Resume（断线后重新 Identify），重连期间的消息可能丢失。
-- iOS 后台/锁屏可能暂停 WebSocket；没有 APNs 推送，不能保证后台消息接收。
-- 目前只处理单聊及群文字事件，不提供频道 UI、附件显示/上传。
-- QQ 被动回复时限、次数、审核和权限受平台限制；发送失败仅给通用提示。
-- 需要真机确认 Keychain、登录、前台接收/回复、断网恢复体验及侧载签名兼容性。
-- 不应宣称产品已正式上线或全链路验收完成。
+- iOS 后台/锁屏会暂停 WebSocket，无 APNs，后台消息不能保证实时。
+- 当前只处理单聊与群聊事件，频道消息未接入。
+- 语音需 silk 编码才能在 QQ 客户端稳定播放；当前上传 m4a 是否可用待真机确认。
+- 消息删除只删本地，不会撤回 QQ 侧消息。
+- 单一机器人账号，无多账号切换。
+- 每次发送必须处于 QQ 被动回复窗口内（由用户最近一条消息触发）。
 
-## 凭证处理
+## 凭证与安全
 
-用户已表示测试后自行轮换。不要将 AppSecret、GitHub Token、QQ access token 或测试用户 OpenID 写入源码、文档、提交或日志。GitHub 推送使用用户授权的临时凭证；若旧系统 Git 凭证助手覆盖凭证，单次命令使用 git -c credential.helper= 和临时 askpass。不要保存实际 Token 到 Git remote。
+- 不要把 AppSecret、access token、GitHub Token 或用户 OpenID 写入源码、文档、提交或日志。
+- 用户已在聊天中暴露过凭证，提醒其自行轮换。
+- 无签名 IPA 仅用于自测，不要公开发布。
