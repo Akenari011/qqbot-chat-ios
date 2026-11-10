@@ -121,7 +121,7 @@ struct ConversationView: View {
             if message.fromBot { avatar } else { Spacer(minLength: 42) }
             VStack(alignment: message.fromBot ? .leading : .trailing, spacing: 4) {
                 Text(message.fromBot ? "QQ 机器人" : message.authorName).font(.system(size: 11)).foregroundStyle(.secondary).padding(.horizontal, 4)
-                Text(message.text).font(.system(size: 16)).foregroundStyle(message.fromBot ? .primary : .white).padding(.horizontal, 12).padding(.vertical, 9).background(message.fromBot ? Color(uiColor: .systemBackground) : blue, in: RoundedRectangle(cornerRadius: 16))
+                Text(message.text).font(.system(size: 16)).foregroundStyle(message.fromBot ? Color.primary : Color.white).padding(.horizontal, 12).padding(.vertical, 9).background(message.fromBot ? Color(uiColor: .systemBackground) : blue, in: RoundedRectangle(cornerRadius: 16))
                 Text(message.date, format: .dateTime.hour().minute()).font(.system(size: 10)).foregroundStyle(.tertiary).padding(.horizontal, 4)
             }
             if message.fromBot { Spacer(minLength: 42) }
