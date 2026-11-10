@@ -1260,9 +1260,10 @@ struct RootView: View {
                 TabView {
                     ConversationListView(store: store)
                         .tabItem { Label("聊天", systemImage: "bubble.left.and.bubble.right.fill") }
-                    SettingsView(store: store)
+                    SettingsView(store: store, isTab: true)
                         .tabItem { Label("设置", systemImage: "gearshape.fill") }
                 }
+                .tabBarMinimizeBehavior(.onScrollDown)
             } else {
                 LoginView(store: store)
             }
@@ -2334,6 +2335,7 @@ struct GuildListView: View {
 
 struct SettingsView: View {
     let store: ChatStore
+    var isTab = false
     @Environment(\.dismiss) private var dismiss
     @State private var confirmClear = false
     @State private var bgItem: PhotosPickerItem?
@@ -2412,7 +2414,9 @@ struct SettingsView: View {
             .navigationTitle("设置")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) { Button("完成") { dismiss() } }
+                if !isTab {
+                    ToolbarItem(placement: .navigationBarTrailing) { Button("完成") { dismiss() } }
+                }
             }
             .confirmationDialog("清空全部聊天记录？", isPresented: $confirmClear, titleVisibility: .visible) {
                 Button("清空", role: .destructive) { store.clearHistory() }
