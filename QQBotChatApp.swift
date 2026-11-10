@@ -156,6 +156,9 @@ final class ChatStore {
     var chatBackground: String = UserDefaults.standard.string(forKey: "chatBackground") ?? "default" {
         didSet { UserDefaults.standard.set(chatBackground, forKey: "chatBackground") }
     }
+    var mentionSyntax: Bool = UserDefaults.standard.bool(forKey: "mentionSyntax") {
+        didSet { UserDefaults.standard.set(mentionSyntax, forKey: "mentionSyntax") }
+    }
 
     private var token = ""
     private var tokenExpires = Date.distantPast
@@ -1850,7 +1853,7 @@ struct ComposerInput: View {
             NavigationStack {
                 List(mentionMembers, id: \.0) { member in
                     Button("@" + member.1) {
-                        text += "@" + member.1 + " "
+                        text += store.mentionSyntax ? "<@" + member.0 + "> " : "@" + member.1 + " "
                         showMentions = false
                     }
                 }
@@ -2184,6 +2187,7 @@ struct SettingsView: View {
                         Text("绿色").tag("green")
                         Text("蓝色").tag("blue")
                     }
+                    Toggle("实验性 @ 标记（发送 <@openid>）", isOn: Binding(get: { store.mentionSyntax }, set: { store.mentionSyntax = $0 }))
                 }
                 Section("频道") {
                     NavigationLink("频道列表") { GuildListView(store: store) }
