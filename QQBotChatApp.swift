@@ -1493,6 +1493,8 @@ struct ChatView: View {
     @State private var showReactionUsers = false
     @State private var playingVideoURL: URL?
     @State private var menuMessage: ChatMessage?
+    @State private var forwardMessage: ChatMessage?
+    @State private var showForwardPicker = false
     @State private var scrollTick = 0
     @State private var renderLimit = 100
     @State private var showScrollButton = false
@@ -1601,6 +1603,9 @@ struct ChatView: View {
                 Button("复制") { UIPasteboard.general.string = message.text }
             }
             Button("引用") { quoting = message }
+            if !message.text.isEmpty {
+                Button("转发") { forwardMessage = message; showForwardPicker = true }
+            }
             if message.status == "failed" {
                 Button("重发") { Task { await store.retryMessage(conversationID: conversationID, messageID: message.id) } }
             }
@@ -1635,6 +1640,22 @@ struct ChatView: View {
             }
             Button("删除", role: .destructive) { store.deleteMessage(conversationID: conversationID, messageID: message.id) }
             Button("取消", role: .cancel) { menuMessage = nil }
+        }
+        .sheet(isPresented: $showForwardPicker) {
+            NavigationStack {
+                List(store.conversations.filter { $0.id != conversationID }) { conversation in
+                    Button(conversation.name) {
+                        if let message = forwardMessage {
+                            Task { await store.sendText(message.text, to: conversation.id) }
+                        }
+                        showForwardPicker = false
+                        forwardMessage = nil
+                    }
+                }
+                .navigationTitle("转发到")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("取消") { showForwardPicker = false; forwardMessage = nil } } }
+            }
         }
         .sheet(isPresented: Binding(get: { playingVideoURL != nil }, set: { if !$0 { playingVideoURL = nil } })) {
             if let url = playingVideoURL {
