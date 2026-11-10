@@ -1518,6 +1518,11 @@ struct ChatView: View {
     private let blue = Color(red: 0.20, green: 0.55, blue: 0.88)
 
     private var conversation: Conversation? { store.conversation(conversationID) }
+    private var visibleMessages: [ChatMessage] {
+        guard let conversation else { return [] }
+        return Array(conversation.messages.suffix(renderLimit))
+    }
+
 
     private var searchResults: [ChatMessage] {
         let all = conversation?.messages ?? []
@@ -1536,6 +1541,48 @@ struct ChatView: View {
         reactionMessageID = messageID
         showReactionUsers = true
         Task { await store.loadReactionUsers(conversationID: conversationID, messageID: messageID) }
+    }
+
+    private func dateHeaderString(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "yyyy年M月d日"
+        return formatter.string(from: date)
+    }
+
+    @ViewBuilder
+    private func messageCell(visible: [ChatMessage], index: Int, proxy: ScrollViewProxy) -> some View {
+        let message = visible[index]
+        let previous: ChatMessage? = index > 0 ? visible[index - 1] : nil
+        let next: ChatMessage? = index < visible.count - 1 ? visible[index + 1] : nil
+        let showDate = previous.map { !Calendar.current.isDate(message.date, inSameDayAs: $0.date) } ?? true
+        let mergedTop = previous.map { isSameMessageGroup($0, message) } ?? false
+        let mergedBottom = next.map { isSameMessageGroup(message, $0) } ?? false
+        if showDate {
+            Text(dateHeaderString(message.date))
+                .font(.system(size: 11)).foregroundStyle(.secondary)
+                .padding(.vertical, 6)
+        }
+        MessageRow(
+            store: store,
+            conversationID: conversationID,
+            message: message,
+            mergedTop: mergedTop,
+            mergedBottom: mergedBottom,
+            onQuote: handleQuote,
+            onJump: { target in withAnimation { proxy.scrollTo(target, anchor: .center) } },
+            onPreview: handlePreview,
+            onEdit: handleEdit,
+            onReactionUsers: handleReactionUsers,
+            onPlayVideo: handlePlayVideo,
+            onLongPress: handleLongPress,
+            onForward: handleForward
+        )
+        .id(message.id)
+        .transition(.asymmetric(
+            insertion: .move(edge: .bottom).combined(with: .opacity),
+            removal: .opacity
+        ))
     }
 
     @ViewBuilder
@@ -1811,40 +1858,13 @@ struct ChatView: View {
                                 Button("加载更早消息") { renderLimit += 100 }
                                     .font(.system(size: 12)).padding(.top, 8)
                             }
-                            let visible = Array(conversation.messages.suffix(renderLimit))
-                            if visible.isEmpty {
+                            if visibleMessages.isEmpty {
                                 Text("从 QQ 给机器人发一条消息开始聊天")
                                     .font(.system(size: 13)).foregroundStyle(.secondary)
                                     .padding(.top, 40)
                             }
-                            ForEach(Array(visible.enumerated()), id: \.element.id) { index, message in
-                                if index == 0 || !Calendar.current.isDate(message.date, inSameDayAs: visible[index - 1].date) {
-                                    Text(message.date, format: .dateTime.year().month().day())
-                                        .font(.system(size: 11)).foregroundStyle(.secondary)
-                                        .padding(.vertical, 6)
-                                }
-                                let mergedTop = index > 0 && isSameMessageGroup(visible[index - 1], message)
-                                let mergedBottom = index < visible.count - 1 && isSameMessageGroup(message, visible[index + 1])
-                                MessageRow(
-                                    store: store,
-                                    conversationID: conversationID,
-                                    message: message,
-                                    mergedTop: mergedTop,
-                                    mergedBottom: mergedBottom,
-                                    onQuote: handleQuote,
-                                    onJump: { target in withAnimation { proxy.scrollTo(target, anchor: .center) } },
-                                    onPreview: handlePreview,
-                                    onEdit: handleEdit,
-                                    onReactionUsers: handleReactionUsers,
-                                    onPlayVideo: handlePlayVideo,
-                                    onLongPress: handleLongPress,
-                                    onForward: handleForward
-                                )
-                                .id(message.id)
-                                .transition(.asymmetric(
-                                    insertion: .move(edge: .bottom).combined(with: .opacity),
-                                    removal: .opacity
-                                ))
+                            ForEach(Array(visibleMessages.enumerated()), id: \.element.id) { index, _ in
+                                messageCell(visible: visibleMessages, index: index, proxy: proxy)
                             }
                         }
                     }
