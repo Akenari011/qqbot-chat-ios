@@ -29,3 +29,25 @@ jobs:
         run: xcodebuild -list -project QQBotChat.xcodeproj
       - name: Build iOS Simulator app
         run: xcodebuild -project QQBotChat.xcodeproj -scheme QQBotChat -sdk iphonesimulator -configuration Debug -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+
+  container-smoke:
+    runs-on: ubuntu-latest
+    env:
+      SMOKE_PASSWORD: container-example-password
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build gateway container
+        run: docker build -f server/Dockerfile -t qqbot-chat:test .
+      - name: Start isolated test gateway
+        run: |
+          docker run -d --name qqbot-smoke -p 127.0.0.1:8080:8080 \
+            -e QQBOT_CHAT_USERNAME=container-user \
+            -e QQBOT_CHAT_PASSWORD="$SMOKE_PASSWORD" \
+            -e QQBOT_GATEWAY_KEY=container-internal-key \
+            -e QQBOT_CHAT_SCENE=c2c \
+            -e QQBOT_CHAT_TARGET_ID=container-openid qqbot-chat:test
+      - name: Check real HTTP login and message persistence
+        run: python3 server/container_smoke.py
+      - name: Stop test container
+        if: always()
+        run: docker rm -f qqbot-smoke
