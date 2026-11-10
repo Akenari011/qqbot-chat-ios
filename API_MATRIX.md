@@ -32,12 +32,12 @@
 | get_voice_members | 不适用 | 语音频道成员 |
 | create/update/delete_channel | 不适用 | 频道结构管理 |
 | channel user/role permissions | 不适用 | 权限覆盖 |
-| create_announce / delete_announce | 部分接入 | 长按频道消息可设为公告；删除公告未做 |
+| create_announce / delete_announce | 已接入 | 长按频道消息可设为/取消公告 |
 | get_permissions / post_permission_demand | 不适用 | API 权限申请 |
 | get_schedules | 已接入 | 频道聊天页日历按钮查看日程 |
 | create/update/delete_schedule | 不适用 | 日程管理后台能力 |
 | get_threads / post_thread / delete_thread | 不适用 | 论坛频道 |
-| put_reaction / delete_reaction / get_reaction_users | 部分接入 | 长按频道消息可点赞/取消点赞；用户列表未做 |
+| put_reaction / delete_reaction / get_reaction_users | 已接入 | 点赞/取消点赞/查看点赞用户 |
 | put_pin / delete_pin / get_pins | 已接入 | 长按可置顶/取消置顶，频道工具可查看置顶列表 |
 | mute_all / mute_member / mute_multi_member 等 | 不适用 | 频道禁言管理 |
 | update_audio / on_microphone / off_microphone | 不适用 | 语音房麦克风控制 |
