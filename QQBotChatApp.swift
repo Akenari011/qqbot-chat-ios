@@ -1613,21 +1613,7 @@ struct ChatView: View {
             Button("取消", role: .cancel) { editingMessage = nil }
         }
         .fullScreenCover(isPresented: $showPreview) {
-            ZStack {
-                Color.black.ignoresSafeArea()
-                if let previewImage {
-                    Image(uiImage: previewImage).resizable().scaledToFit()
-                }
-                VStack {
-                    HStack {
-                        Spacer()
-                        Button { showPreview = false } label: {
-                            Image(systemName: "xmark.circle.fill").font(.system(size: 28)).foregroundStyle(.white.opacity(0.9))
-                        }.padding()
-                    }
-                    Spacer()
-                }
-            }
+            ImagePreview(image: previewImage) { showPreview = false }
         }
         .sheet(isPresented: $showChatSearch) {
             NavigationStack {
@@ -1922,6 +1908,43 @@ struct ComposerInput: View {
         .onDisappear {
             store.drafts[conversationID] = text
             UserDefaults.standard.set(store.drafts, forKey: "drafts")
+        }
+    }
+}
+
+struct ImagePreview: View {
+    let image: UIImage?
+    let onClose: () -> Void
+    @State private var scale: CGFloat = 1
+    @State private var lastScale: CGFloat = 1
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            if let image {
+                Image(uiImage: image).resizable().scaledToFit()
+                    .scaleEffect(scale)
+                    .gesture(
+                        MagnificationGesture()
+                            .onChanged { value in scale = max(1, min(6, lastScale * value)) }
+                            .onEnded { _ in lastScale = scale }
+                    )
+                    .onTapGesture(count: 2) {
+                        withAnimation {
+                            scale = scale > 1 ? 1 : 2
+                            lastScale = scale
+                        }
+                    }
+            }
+            VStack {
+                HStack {
+                    Spacer()
+                    Button(action: onClose) {
+                        Image(systemName: "xmark.circle.fill").font(.system(size: 28)).foregroundStyle(.white.opacity(0.9))
+                    }.padding()
+                }
+                Spacer()
+            }
         }
     }
 }
