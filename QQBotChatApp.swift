@@ -1318,7 +1318,6 @@ struct ConversationRow: View {
 struct ChatView: View {
     let store: ChatStore
     let conversationID: String
-    @State private var draft = ""
     @State private var pickerItems: [PhotosPickerItem] = []
     @State private var videoItem: PhotosPickerItem?
     @State private var quoting: ChatMessage?
@@ -1452,12 +1451,9 @@ struct ChatView: View {
         .onAppear {
             store.activeConversationID = conversationID
             store.markRead(conversationID)
-            draft = store.drafts[conversationID] ?? ""
         }
         .onDisappear {
             store.activeConversationID = nil
-            store.drafts[conversationID] = draft
-            UserDefaults.standard.set(store.drafts, forKey: "drafts")
             if recording { recorder?.stop(); recorder = nil; recording = false }
         }
         .onChange(of: pickerItems) { _, items in
@@ -1644,27 +1640,12 @@ struct ChatView: View {
                         .foregroundStyle(recording ? Color.red : blue)
                 }
                 .accessibilityLabel(recording ? "停止录音并发送" : "录制语音")
-                TextField("消息", text: $draft, axis: .vertical).lineLimit(1...5)
-                    .padding(.horizontal, 12).padding(.vertical, 9)
-                    .background(Color(uiColor: .secondarySystemBackground), in: Capsule())
-                Button {
-                    let text = draft
-                    let quote = quoting
-                    draft = ""
+                ComposerInput(store: store, conversationID: conversationID, quoting: quoting) { text, quote in
                     quoting = nil
                     store.drafts[conversationID] = ""
                     UserDefaults.standard.set(store.drafts, forKey: "drafts")
                     Task { await store.sendText(text, to: conversationID, quote: quote) }
-                } label: {
-                    if store.sendingConversationID == conversationID {
-                        ProgressView().frame(width: 34, height: 34)
-                    } else {
-                        Image(systemName: "arrow.up").font(.system(size: 16, weight: .bold)).foregroundStyle(.white)
-                            .frame(width: 34, height: 34).background(blue, in: Circle())
-                    }
                 }
-                .disabled(store.sendingConversationID != nil || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .accessibilityLabel("发送消息")
             }
             .padding(.horizontal, 12).padding(.vertical, 10)
             if showEmoji {
@@ -1681,6 +1662,43 @@ struct ChatView: View {
         }
         .background(Color(uiColor: .systemBackground))
         .overlay(alignment: .top) { Divider() }
+    }
+}
+
+struct ComposerInput: View {
+    let store: ChatStore
+    let conversationID: String
+    let quoting: ChatMessage?
+    let onSend: (String, ChatMessage?) -> Void
+    @State private var text = ""
+    private let blue = Color(red: 0.20, green: 0.55, blue: 0.88)
+
+    var body: some View {
+        HStack(spacing: 8) {
+            TextField("消息", text: $text, axis: .vertical).lineLimit(1...5)
+                .padding(.horizontal, 12).padding(.vertical, 9)
+                .background(Color(uiColor: .secondarySystemBackground), in: Capsule())
+            Button {
+                let value = text
+                let quote = quoting
+                text = ""
+                onSend(value, quote)
+            } label: {
+                if store.sendingConversationID == conversationID {
+                    ProgressView().frame(width: 34, height: 34)
+                } else {
+                    Image(systemName: "arrow.up").font(.system(size: 16, weight: .bold)).foregroundStyle(.white)
+                        .frame(width: 34, height: 34).background(blue, in: Circle())
+                }
+            }
+            .disabled(store.sendingConversationID != nil || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .accessibilityLabel("发送消息")
+        }
+        .onAppear { text = store.drafts[conversationID] ?? "" }
+        .onDisappear {
+            store.drafts[conversationID] = text
+            UserDefaults.standard.set(store.drafts, forKey: "drafts")
+        }
     }
 }
 
