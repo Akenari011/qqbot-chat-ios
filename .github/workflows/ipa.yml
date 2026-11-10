@@ -24,13 +24,13 @@ jobs:
           lipo ipa/Payload/QQBotChat.app/QQBotChat -verify_arch arm64
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' ipa/Payload/QQBotChat.app/Info.plist
           cd ipa
-          zip -qry ../CosBot-unsigned.ipa Payload
+          zip -qry ../QQBotChat-unsigned.ipa Payload
           cd ..
-          shasum -a 256 CosBot-unsigned.ipa > CosBot-unsigned.ipa.sha256
+          shasum -a 256 QQBotChat-unsigned.ipa > QQBotChat-unsigned.ipa.sha256
       - uses: actions/upload-artifact@v4
         with:
-          name: CosBot-unsigned-IPA
+          name: QQBotChat-unsigned-IPA
           path: |
-            CosBot-unsigned.ipa
-            CosBot-unsigned.ipa.sha256
+            QQBotChat-unsigned.ipa
+            QQBotChat-unsigned.ipa.sha256
           if-no-files-found: error

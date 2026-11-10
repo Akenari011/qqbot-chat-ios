@@ -1,4 +1,4 @@
-# CosBot 交接文档
+# QQBot Chat 交接文档
 
 ## 产品方向
 
