@@ -1825,7 +1825,8 @@ struct ChatView: View {
                                         Task { await store.loadReactionUsers(conversationID: conversationID, messageID: messageID) }
                                     },
                                     onPlayVideo: { url in playingVideoURL = url },
-                                    onLongPress: { target in menuMessage = target }
+                                    onLongPress: { target in menuMessage = target },
+                                    onForward: { target in forwardMessage = target; showForwardPicker = true }
                                 )
                                 .id(message.id)
                                 .transition(.asymmetric(
@@ -2077,6 +2078,7 @@ struct MessageRow: View {
     let onReactionUsers: (String) -> Void
     let onPlayVideo: (URL) -> Void
     let onLongPress: (ChatMessage) -> Void
+    let onForward: (ChatMessage) -> Void
     @State private var audioPlayer: AVAudioPlayer?
     @State private var playingAudio = false
     @State private var loadedImage: UIImage?
@@ -2155,10 +2157,13 @@ struct MessageRow: View {
         }
         .frame(maxWidth: .infinity, alignment: message.fromBot ? .trailing : .leading)
         .contextMenu {
+            Button { onQuote(message) } label: { Label("回复", systemImage: "arrowshape.turn.up.left") }
             if !message.text.isEmpty {
                 Button { UIPasteboard.general.string = message.text } label: { Label("复制", systemImage: "doc.on.doc") }
             }
-            Button { onQuote(message) } label: { Label("引用", systemImage: "arrowshape.turn.up.left") }
+            if !message.text.isEmpty {
+                Button { onForward(message) } label: { Label("转发", systemImage: "arrowshape.turn.up.right") }
+            }
             if message.status == "failed" {
                 Button { Task { await store.retryMessage(conversationID: conversationID, messageID: message.id) } } label: { Label("重发", systemImage: "arrow.clockwise") }
             }
