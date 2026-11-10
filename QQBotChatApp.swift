@@ -2327,20 +2327,29 @@ struct ComposerInput: View {
                         onSend(value, quote)
                     }
                 } label: {
-                    if store.sendingConversationID == conversationID {
-                        ProgressView().frame(width: 40, height: 40)
-                    } else if recording {
-                        Image(systemName: "stop.fill").font(.system(size: 16, weight: .bold)).foregroundStyle(.white)
-                            .frame(width: 40, height: 40).background(Color.red, in: Circle())
-                    } else if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Image(systemName: "mic.fill").font(.system(size: 17)).foregroundStyle(blue)
-                            .frame(width: 40, height: 40)
-                            .glassEffect(.regular, in: Circle())
-                    } else {
-                        Image(systemName: "arrow.up").font(.system(size: 16, weight: .bold)).foregroundStyle(.white)
-                            .frame(width: 40, height: 40)
-                        .glassEffect(.regular.tint(Color(uiColor: .systemBlue)), in: Circle())
+                    let hasContent = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || quoting != nil
+                    ZStack {
+                        if store.sendingConversationID == conversationID {
+                            ProgressView()
+                        } else if recording {
+                            RoundedRectangle(cornerRadius: 3).fill(.primary)
+                                .frame(width: 14, height: 14)
+                                .glassEffect(.regular, in: Circle())
+                                .frame(width: 40, height: 40)
+                        } else {
+                            Image(systemName: "mic.fill").font(.system(size: 17)).foregroundStyle(blue)
+                                .frame(width: 40, height: 40)
+                                .glassEffect(.regular, in: Circle())
+                                .opacity(hasContent ? 0 : 1)
+                                .scaleEffect(hasContent ? 0.2 : 1)
+                            Image(systemName: "arrow.up").font(.system(size: 16, weight: .bold)).foregroundStyle(.white)
+                                .frame(width: 40, height: 40)
+                                .glassEffect(.regular.tint(Color(uiColor: .systemBlue)), in: Circle())
+                                .opacity(hasContent ? 1 : 0)
+                                .scaleEffect(hasContent ? 1 : 0.2)
+                        }
                     }
+                    .animation(.easeInOut(duration: 0.2), value: hasContent)
                 }
                 .disabled(store.sendingConversationID != nil)
                 .accessibilityLabel("发送或录音")
@@ -2574,9 +2583,13 @@ struct MessageRow: View {
                 if message.isImage || message.isVideo || message.isAudio {
                     HStack(spacing: 3) {
                         Text(message.date, format: .dateTime.hour().minute())
-                            .font(.system(size: 11)).foregroundStyle(.tertiary)
-                        statusIcon
-                    }.padding(.horizontal, 4)
+                            .font(.system(size: 11))
+                        if message.fromBot { TGDoubleCheck(color: .white.opacity(0.9)) }
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(Color.black.opacity(0.35), in: Capsule())
+                    .padding(.trailing, 6).padding(.bottom, 6)
                 }
             }
             if message.fromBot { Color.clear.frame(width: 34, height: 34) } else { Spacer(minLength: 48) }
