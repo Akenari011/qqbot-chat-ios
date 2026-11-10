@@ -1895,7 +1895,7 @@ struct ComposerInput: View {
             NavigationStack {
                 List(mentionMembers, id: \.0) { member in
                     Button("@" + member.1) {
-                        text += store.mentionSyntax ? "<@!" + member.0 + "> " : "@" + member.1 + " "
+                        text += store.mentionSyntax ? "<@" + member.0 + "> " : "@" + member.1 + " "
                         showMentions = false
                     }
                 }
