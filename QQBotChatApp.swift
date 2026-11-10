@@ -1793,7 +1793,7 @@ struct ChatView: View {
     private var messageList: some View {
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(spacing: 12) {
+                    LazyVStack(spacing: 3) {
                         if let conversation {
                             if conversation.messages.count > renderLimit {
                                 Button("加载更早消息") { renderLimit += 100 }
@@ -1826,7 +1826,12 @@ struct ChatView: View {
                                     },
                                     onPlayVideo: { url in playingVideoURL = url },
                                     onLongPress: { target in menuMessage = target }
-                                ).id(message.id)
+                                )
+                                .id(message.id)
+                                .transition(.asymmetric(
+                                    insertion: .move(edge: .bottom).combined(with: .opacity),
+                                    removal: .opacity
+                                ))
                             }
                         }
                     }
@@ -2208,11 +2213,11 @@ struct MessageRow: View {
             if let image = loadedImage {
                 Image(uiImage: image).resizable().scaledToFit()
                     .frame(maxWidth: 220, maxHeight: 280)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .clipShape(RoundedRectangle(cornerRadius: 15))
                     .onTapGesture { onPreview(image) }
             } else {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 14).fill(Color(uiColor: .tertiarySystemBackground))
+                    RoundedRectangle(cornerRadius: 15).fill(Color(uiColor: .tertiarySystemBackground))
                     ProgressView()
                 }
                 .frame(width: 160, height: 160)
@@ -2229,7 +2234,7 @@ struct MessageRow: View {
                         .shadow(radius: 4)
                 }
                 .frame(width: 240, height: 160)
-                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .clipShape(RoundedRectangle(cornerRadius: 15))
             }
             .buttonStyle(.plain)
         } else if let name = message.audioFile, let url = store.mediaURL(named: name) {
@@ -2245,7 +2250,7 @@ struct MessageRow: View {
                     Text(playingAudio ? "播放中" : (message.duration.map { "语音 \(Int($0))″" } ?? "语音消息")).font(.system(size: 14))
                 }
                 .foregroundStyle(message.fromBot ? Color.white : Color.primary)
-                .padding(.horizontal, 12).padding(.vertical, 9)
+                .padding(.horizontal, 11).padding(.vertical, 6)
                 .background(message.fromBot ? blue : Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 16))
             }
         } else if let name = message.fileLocal, let url = store.mediaURL(named: name) {
@@ -2258,11 +2263,11 @@ struct MessageRow: View {
                     }
                 }
                 .padding(12)
-                .background(Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 14))
+                .background(Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 15))
             }
         } else if message.imageURL != nil || message.videoURL != nil || message.audioURL != nil {
             ZStack {
-                RoundedRectangle(cornerRadius: 14).fill(Color(uiColor: .tertiarySystemBackground))
+                RoundedRectangle(cornerRadius: 15).fill(Color(uiColor: .tertiarySystemBackground))
                 VStack(spacing: 6) {
                     ProgressView()
                     Text(message.isVideo ? "视频" : (message.isAudio ? "语音" : "图片")).font(.system(size: 11)).foregroundStyle(.secondary)
