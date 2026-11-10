@@ -2526,30 +2526,67 @@ final class TGDirectionalPanGesture: UIPanGestureRecognizer {
     }
 }
 
-// Installs the recognizer on the SwiftUI view's own UIView, so it receives
-// touches without inserting a hit-test-blocking layer (iOS 18+).
-struct SwipeReplyCatcher: UIGestureRecognizerRepresentable {
+// UIKit delivers touches to the hit-tested view AND all its ancestor views'
+// gesture recognizers. So we attach the pan to the row's superview instead of
+// an inserted layer: it receives touches without blocking taps/context menus.
+struct SwipeReplyCatcher: UIViewRepresentable {
     let onChanged: (CGFloat) -> Void
     let onEnded: (CGFloat) -> Void
 
-    func makeUIGestureRecognizer(context: Context) -> TGDirectionalPanGesture {
-        let pan = TGDirectionalPanGesture()
-        pan.cancelsTouchesInView = false
-        pan.maximumNumberOfTouches = 1
-        return pan
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.backgroundColor = .clear
+        view.isUserInteractionEnabled = false
+        return view
     }
 
-    func updateUIGestureRecognizer(_ recognizer: TGDirectionalPanGesture, context: Context) {}
+    func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.onChanged = onChanged
+        context.coordinator.onEnded = onEnded
+        context.coordinator.rowView = uiView
+        DispatchQueue.main.async {
+            guard let host = uiView.superview, context.coordinator.pan == nil else { return }
+            let pan = TGDirectionalPanGesture(target: context.coordinator, action: #selector(Coordinator.panned(_:)))
+            pan.delegate = context.coordinator
+            pan.cancelsTouchesInView = false
+            pan.maximumNumberOfTouches = 1
+            host.addGestureRecognizer(pan)
+            context.coordinator.pan = pan
+            context.coordinator.hostView = host
+        }
+    }
 
-    func handleUIGestureRecognizerAction(_ recognizer: TGDirectionalPanGesture, context: Context) {
-        let translation = recognizer.translation(in: recognizer.view)
-        switch recognizer.state {
-        case .began, .changed:
-            onChanged(translation.x)
-        case .ended, .cancelled:
-            onEnded(translation.x)
-        default:
-            break
+    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+        if let pan = coordinator.pan { pan.view?.removeGestureRecognizer(pan) }
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var onChanged: ((CGFloat) -> Void)?
+        var onEnded: ((CGFloat) -> Void)?
+        weak var rowView: UIView?
+        weak var hostView: UIView?
+        var pan: UIGestureRecognizer?
+
+        @objc func panned(_ gesture: UIPanGestureRecognizer) {
+            guard let host = hostView, let row = rowView else { return }
+            // Only react when the gesture started inside this row.
+            guard row.frame.contains(gesture.location(in: host)) else { return }
+            let translation = gesture.translation(in: host)
+            switch gesture.state {
+            case .began, .changed:
+                onChanged?(translation.x)
+            case .ended, .cancelled:
+                onEnded?(translation.x)
+            default:
+                break
+            }
+        }
+
+        func gestureRecognizer(_ gesture: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+            true
         }
     }
 }
