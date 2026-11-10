@@ -13,7 +13,7 @@
 | post_group_file | 已接入 | 群聊富媒体上传 |
 | 频道富媒体上传 | 已接入 | `/channels/{id}/files` |
 | recall_message（频道） | 已接入 | 长按频道消息撤回 |
-| post_keyboard_message | 待接入 | 发送带按钮的频道消息 |
+| post_keyboard_message | 已接入 | 频道工具菜单可发送带按钮消息 |
 | patch_guild_message | 已接入 | 长按自己发送的频道消息可编辑 |
 | get_message（频道） | 待接入 | 拉取单条频道消息 |
 | create_dms / post_dms | 不适用 | 私信频道会话，需 guild 场景 |
@@ -32,13 +32,13 @@
 | get_voice_members | 不适用 | 语音频道成员 |
 | create/update/delete_channel | 不适用 | 频道结构管理 |
 | channel user/role permissions | 不适用 | 权限覆盖 |
-| create_announce / delete_announce | 待接入 | 频道公告 |
+| create_announce / delete_announce | 部分接入 | 长按频道消息可设为公告；删除公告未做 |
 | get_permissions / post_permission_demand | 不适用 | API 权限申请 |
 | get_schedules | 已接入 | 频道聊天页日历按钮查看日程 |
 | create/update/delete_schedule | 不适用 | 日程管理后台能力 |
 | get_threads / post_thread / delete_thread | 不适用 | 论坛频道 |
-| put_reaction / delete_reaction / get_reaction_users | 部分接入 | 长按频道消息可点赞回应；删除与用户列表未做 |
-| put_pin / delete_pin / get_pins | 部分接入 | 长按频道消息可置顶；取消与列表未做 |
+| put_reaction / delete_reaction / get_reaction_users | 部分接入 | 长按频道消息可点赞/取消点赞；用户列表未做 |
+| put_pin / delete_pin / get_pins | 已接入 | 长按可置顶/取消置顶，频道工具可查看置顶列表 |
 | mute_all / mute_member / mute_multi_member 等 | 不适用 | 频道禁言管理 |
 | update_audio / on_microphone / off_microphone | 不适用 | 语音房麦克风控制 |
 
