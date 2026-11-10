@@ -550,12 +550,17 @@ final class ChatStore {
     }
 
     func reconnectIfNeeded() {
-        guard shouldRun, socket == nil, !connecting else { return }
-        reconnectTask?.cancel()
-        log("前台恢复，尝试重连")
+        guard shouldRun, !connecting else { return }
+        let stale = Date().timeIntervalSince(lastAck) > 45 || status != "已连接"
+        if socket == nil || stale {
+            log("前台恢复，重连（ACK 间隔 " + String(Int(Date().timeIntervalSince(lastAck))) + "s）")
+            reconnect()
+        }
+        // QQ 单聊/群聊无官方历史接口，只有频道能补拉。
         Task {
-            do { try await openSocket(resume: sessionID != nil && sequence != nil) }
-            catch { scheduleReconnect() }
+            for conversation in conversations where conversation.scene == "channel" {
+                await fetchHistory(conversationID: conversation.id)
+            }
         }
     }
 
@@ -2106,11 +2111,12 @@ struct ChatView: View {
                                 messageCell(visible: visibleMessages, index: index, proxy: proxy)
                             }
                         }
+                        Color.clear.frame(height: 1).id("chatBottom")
                     }
                     .padding(.horizontal, 12).padding(.vertical, 12)
                     .animation(.easeInOut(duration: 0.2), value: visibleMessages.count)
-                    Color.clear.frame(height: 1).id("chatBottom")
                 }
+                .defaultScrollAnchor(.bottom)
                 .background(chatBackground)
                 .scrollDismissesKeyboard(.interactively)
                 .simultaneousGesture(TapGesture().onEnded {
@@ -2152,7 +2158,11 @@ struct ChatView: View {
                     withAnimation { proxy.scrollTo("chatBottom", anchor: .bottom) }
                 }
                 .onAppear {
-                    DispatchQueue.main.async {
+                    // Layout pass must finish before any programmatic scroll; otherwise
+                    // the lazy stack can be scrolled out of view (blank screen).
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(250))
+                        guard !visibleMessages.isEmpty else { return }
                         proxy.scrollTo("chatBottom", anchor: .bottom)
                     }
                 }
