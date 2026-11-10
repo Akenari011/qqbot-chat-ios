@@ -20,9 +20,9 @@
 
 服务端变量示例见 `server/.env.example`。设置这些服务端变量后运行 FastAPI：`uvicorn main:app --app-dir server --host 127.0.0.1 --port 8080`；事件桥使用同一组机器人和目标配置，并设置 `QQBOT_INTERNAL_INGEST_URL` 指向受保护的内部收件端点，启动命令为 `python server/event_bridge.py`。部署前需为 iOS 配置网关 URL 与用户认证机制。
 
-GitHub Actions 在 Ubuntu 执行服务端测试、在 macOS 执行无签名 iOS Simulator 编译；公开仓库已连接，上一版编译及测试通过，登录改造待新一轮 CI 验证。
+GitHub Actions 在 Ubuntu 执行服务端测试、在 macOS 执行无签名 iOS Simulator 编译；公开仓库已连接，登录版编译、服务端测试及容器 HTTP 冒烟测试均已通过。后续运行结果以 Actions 页面为准。
 
-当前 16 项本地测试通过。2026-11-10 已用用户授权的凭证真实验证 QQ 鉴权、WebSocket READY、单聊事件接收及被动回复发送成功；测试凭证、消息内容和 OpenID 未写入仓库。该实测使用临时协议探针，并非手机 App 全链路验收。
+当前 19 项本地测试通过。2026-11-10 已用用户授权的凭证真实验证 QQ 鉴权、WebSocket READY、单聊事件接收及被动回复发送成功；测试凭证、消息内容和 OpenID 未写入仓库。该实测使用临时协议探针，并非手机 App 全链路验收。
 
 ## 尚未完成
 
@@ -36,4 +36,10 @@ GitHub Actions 在 Ubuntu 执行服务端测试、在 macOS 执行无签名 iOS 
 
 将 `server/.env.example` 复制为仅服务器可读的 `server/.env`，填入真实配置；不要提交该文件。执行 `docker compose up -d --build` 同时启动网关和事件桥。网关仅发布到 `127.0.0.1:8080`；使用 HTTPS 反向代理对外提供 `/api/qqbot/`，不要代理 `/internal/`。SQLite 使用独立 volume 持久化。
 
-本轮仅验证 Compose YAML，当前环境没有 Docker，容器构建和长期运行尚未验证。公开仓库和镜像上下文均排除本地 `.env`、数据库及日志。
+GitHub Actions 已成功构建容器并验证真实 HTTP 登录、用户/内部认证隔离和消息读写；实际 QQ 事件桥长期运行尚未验证。公开仓库和镜像上下文均排除本地 `.env`、数据库及日志。
+
+## 模拟器构建产物与联调验收
+
+在成功的 Actions 运行页面下载 `QQBotChat-Simulator`。该产物仅供 macOS 上的 iOS Simulator 使用，不是可直接安装到 iPhone 的 IPA。真机安装需要配置自己的 Bundle ID、Apple Development 签名与设备。
+
+联调顺序：配置服务端机器人凭证及授权目标 OpenID → 启动网关和事件桥 → 将 HTTPS 反向代理指向网关 → App 输入服务器地址和聊天账号 → 从 QQ 向机器人发消息并确认左侧接收 → App 输入文字并确认 QQ 收到机器人消息和右侧发送记录 → 重启网关确认历史仍存在。尚未执行这套手机端验收，不应把独立 QQ 协议探针测试等同于 App 全链路验证。
