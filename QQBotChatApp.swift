@@ -1083,6 +1083,7 @@ final class ChatStore {
     }
 
     func cacheAuthorAvatar(_ urlString: String, conversationID: String) {
+        guard let conv = conversation(conversationID), conv.scene == "c2c" else { return }
         guard let url = URL(string: urlString) else { return }
         Task {
             guard let (data, _) = try? await URLSession.shared.data(for: URLRequest(url: url)),
@@ -1621,6 +1622,7 @@ struct ChatView: View {
     @State private var forwardMessage: ChatMessage?
     @State private var showForwardPicker = false
     @State private var showProfileEditor = false
+    @State private var focusComposerTick = 0
     @State private var remarkDraft = ""
     @State private var avatarPickerItem: PhotosPickerItem?
     @State private var scrollTick = 0
@@ -1646,6 +1648,10 @@ struct ChatView: View {
     }
 
     private func handleQuote(_ target: ChatMessage) { quoting = target }
+    private func handleSwipeReply(_ target: ChatMessage) {
+        quoting = target
+        focusComposerTick += 1
+    }
     private func handlePreview(_ image: UIImage) { previewImage = image; showPreview = true }
     private func handleEdit(_ target: ChatMessage) { editingMessage = target; editText = target.text }
     private func handlePlayVideo(_ url: URL) { playingVideoURL = url }
@@ -1689,10 +1695,11 @@ struct ChatView: View {
             onPlayVideo: handlePlayVideo,
             onLongPress: handleLongPress,
             onForward: handleForward,
+            onSwipeReply: handleSwipeReply,
             mergedTop: mergedTop,
             mergedBottom: mergedBottom
         )
-        .padding(.top, mergedTop ? 0 : 3)
+        .padding(.top, 3)
         .id(message.id)
         .transition(.asymmetric(
             insertion: .move(edge: .bottom).combined(with: .opacity),
@@ -2139,7 +2146,8 @@ struct ChatView: View {
                     UserDefaults.standard.set(store.drafts, forKey: "drafts")
                     Task { await store.sendText(text, to: conversationID, quote: quote) }
                 },
-                onFocus: { scrollTick += 1 }
+                onFocus: { scrollTick += 1 },
+                focusTick: focusComposerTick
             )
             .padding(.horizontal, 12).padding(.vertical, 10)
         }
@@ -2159,6 +2167,7 @@ struct ComposerInput: View {
     let onToggleRecording: () -> Void
     let onSend: (String, ChatMessage?) -> Void
     let onFocus: () -> Void
+    let focusTick: Int
     @State private var text = ""
     @FocusState private var isFocused: Bool
     @State private var showEmoji = false
@@ -2271,6 +2280,9 @@ struct ComposerInput: View {
         .onChange(of: isFocused) { _, value in
             if value { onFocus() }
         }
+        .onChange(of: focusTick) { _, _ in
+            isFocused = true
+        }
         .onAppear { text = store.drafts[conversationID] ?? "" }
         .onDisappear {
             store.drafts[conversationID] = text
@@ -2325,24 +2337,11 @@ func isSameMessageGroup(_ a: ChatMessage, _ b: ChatMessage) -> Bool {
 }
 
 func messageBubbleRadii(fromBot: Bool, mergedTop: Bool, mergedBottom: Bool) -> RectangleCornerRadii {
-    // TG messageBubbleArguments: outgoing shrinks the trailing column, incoming the leading one.
-    let large: CGFloat = 16
-    let small: CGFloat = 8
-    if fromBot {
-        return RectangleCornerRadii(
-            topLeading: large,
-            bottomLeading: large,
-            bottomTrailing: mergedBottom ? small : large,
-            topTrailing: mergedTop ? small : large
-        )
-    } else {
-        return RectangleCornerRadii(
-            topLeading: mergedTop ? small : large,
-            bottomLeading: mergedBottom ? small : large,
-            bottomTrailing: large,
-            topTrailing: large
-        )
-    }
+    // Every message is its own bubble (no merging).
+    return RectangleCornerRadii(
+        topLeading: 16, bottomLeading: 16,
+        bottomTrailing: 16, topTrailing: 16
+    )
 }
 
 struct MessageRow: View {
@@ -2357,12 +2356,18 @@ struct MessageRow: View {
     let onPlayVideo: (URL) -> Void
     let onLongPress: (ChatMessage) -> Void
     let onForward: (ChatMessage) -> Void
+    let onSwipeReply: (ChatMessage) -> Void
     var mergedTop = false
     var mergedBottom = false
     @State private var audioPlayer: AVAudioPlayer?
     @State private var playingAudio = false
     @State private var loadedImage: UIImage?
     @State private var videoThumbnail: UIImage?
+    @State private var dragOffset: CGFloat = 0
+    private let replyThreshold: CGFloat = 72
+    private var replyProgress: CGFloat {
+        min(1.0, max(0.0, -dragOffset / replyThreshold))
+    }
     private let blue = Color(red: 0.20, green: 0.55, blue: 0.88)
 
     private var avatarLetter: String {
@@ -2391,9 +2396,6 @@ struct MessageRow: View {
                         letterAvatar
                     }
                 }
-            } else if let conv = store.conversation(conversationID),
-                      let image = store.image(named: conv.avatarPath) {
-                Image(uiImage: image).resizable().scaledToFill()
             } else {
                 letterAvatar
             }
@@ -2410,24 +2412,11 @@ struct MessageRow: View {
             .background(LinearGradient(colors: avatarColors, startPoint: .topLeading, endPoint: .bottomTrailing), in: Circle())
     }
 
-    private var botAvatar: some View {
-        Image(systemName: "bubble.left.and.bubble.right.fill")
-            .font(.system(size: 12)).foregroundStyle(.white)
-            .frame(width: 30, height: 30)
-            .background(blue.gradient, in: Circle())
-    }
-
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            if message.fromBot {
-                Spacer(minLength: 48)
-            } else if mergedTop {
-                Color.clear.frame(width: 30, height: 30)
-            } else {
-                avatar
-            }
+            if message.fromBot { Spacer(minLength: 48) } else { avatar }
             VStack(alignment: message.fromBot ? .trailing : .leading, spacing: 4) {
-                if !message.fromBot && !mergedTop {
+                if !message.fromBot {
                     Text(message.authorName).font(.system(size: 11)).foregroundStyle(.secondary).padding(.horizontal, 4)
                 }
                 if message.quotedText != nil || message.quotedID != nil {
@@ -2461,13 +2450,36 @@ struct MessageRow: View {
                     }.padding(.horizontal, 4)
                 }
             }
-            if message.fromBot {
-                if mergedBottom { Color.clear.frame(width: 30, height: 30) } else { botAvatar }
-            } else {
-                Spacer(minLength: 48)
-            }
+            if message.fromBot { Color.clear.frame(width: 30, height: 30) } else { Spacer(minLength: 48) }
         }
         .frame(maxWidth: .infinity, alignment: message.fromBot ? .trailing : .leading)
+        .offset(x: dragOffset)
+        .overlay(alignment: .trailing) {
+            Image(systemName: "arrowshape.turn.up.left.fill")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 33, height: 33)
+                .background(blue, in: Circle())
+                .scaleEffect(0.65 + replyProgress * 0.35)
+                .opacity(replyProgress)
+                .padding(.trailing, 10)
+        }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 12, coordinateSpace: .local)
+                .onChanged { value in
+                    guard abs(value.translation.width) > abs(value.translation.height) * 2 else { return }
+                    withAnimation(.interactiveSpring) {
+                        dragOffset = max(-replyThreshold - 20, min(0, value.translation.width))
+                    }
+                }
+                .onEnded { value in
+                    guard abs(value.translation.width) > abs(value.translation.height) * 2 else { return }
+                    if value.translation.width < -replyThreshold {
+                        onSwipeReply(message)
+                    }
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) { dragOffset = 0 }
+                }
+        )
         .contextMenu {
             Button { onQuote(message) } label: { Label("回复", systemImage: "arrowshape.turn.up.left") }
             if !message.text.isEmpty {
