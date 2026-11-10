@@ -1765,6 +1765,11 @@ struct ChatView: View {
                     .padding(.horizontal, 12).padding(.vertical, 12)
                 }
                 .background(chatBackground)
+                .refreshable {
+                    if conversation?.scene == "channel" {
+                        await store.fetchHistory(conversationID: conversationID)
+                    }
+                }
                 .onChange(of: jumpTarget) { _, target in
                     if let target { withAnimation { proxy.scrollTo(target, anchor: .center) }; jumpTarget = nil }
                 }
