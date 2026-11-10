@@ -25,8 +25,9 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     var audioURL: String?
     var audioFile: String?
     var quotedText: String?
+    var buttons: [String]?
 
-    init(id: String, text: String, timestamp: String, fromBot: Bool, authorName: String, imageURL: String? = nil, localImage: String? = nil, videoURL: String? = nil, videoFile: String? = nil, audioURL: String? = nil, audioFile: String? = nil, quotedText: String? = nil) {
+    init(id: String, text: String, timestamp: String, fromBot: Bool, authorName: String, imageURL: String? = nil, localImage: String? = nil, videoURL: String? = nil, videoFile: String? = nil, audioURL: String? = nil, audioFile: String? = nil, quotedText: String? = nil, buttons: [String]? = nil) {
         self.id = id
         self.text = text
         self.timestamp = timestamp
@@ -39,6 +40,7 @@ struct ChatMessage: Identifiable, Codable, Equatable {
         self.audioURL = audioURL
         self.audioFile = audioFile
         self.quotedText = quotedText
+        self.buttons = buttons
     }
 
     var isImage: Bool { imageURL != nil || localImage != nil }
@@ -347,11 +349,23 @@ final class ChatStore {
         let isVideo = contentType.hasPrefix("video") || fileName.hasSuffix(".mp4") || fileName.hasSuffix(".mov")
         let isAudio = contentType.hasPrefix("audio") || fileName.hasSuffix(".silk") || fileName.hasSuffix(".amr") || fileName.hasSuffix(".mp3")
         let timestamp = payload["timestamp"] as? String ?? ISO8601DateFormatter().string(from: .now)
+        let keyboard = payload["keyboard"] as? [String: Any]
+        let keyboardContent = keyboard?["content"] as? [String: Any]
+        let rows = keyboardContent?["rows"] as? [[String: Any]] ?? []
+        var buttonLabels: [String] = []
+        for row in rows {
+            for button in row["buttons"] as? [[String: Any]] ?? [] {
+                if let render = button["render_data"] as? [String: Any], let label = render["label"] as? String {
+                    buttonLabels.append(label)
+                }
+            }
+        }
         let message = ChatMessage(
             id: id, text: content, timestamp: timestamp, fromBot: false, authorName: name,
             imageURL: (!isVideo && !isAudio) ? remote : nil,
             videoURL: isVideo ? remote : nil,
-            audioURL: isAudio ? remote : nil
+            audioURL: isAudio ? remote : nil,
+            buttons: buttonLabels.isEmpty ? nil : buttonLabels
         )
         append(message, target: target, scene: isGroup ? "group" : "c2c", name: name, markUnread: activeConversationID != target, replyID: id)
         if let remote {
@@ -751,6 +765,8 @@ struct ChatView: View {
     @State private var quoting: ChatMessage?
     @State private var recorder: AVAudioRecorder?
     @State private var recording = false
+    @State private var showEmoji = false
+    private let emojis = ["😀","😂","🥰","😎","🤔","😭","👍","👎","❤️","🎉","🔥","🌹","🍀","☀️","🌙","⭐️","✅","❌","🤝","🙏","😴","🤣","😅","🥳","😇","🤩","😋","🤗"]
     private let blue = Color(red: 0.20, green: 0.55, blue: 0.88)
 
     private var conversation: Conversation? { store.conversation(conversationID) }
@@ -888,6 +904,11 @@ struct ChatView: View {
                     Image(systemName: "video").font(.system(size: 20)).foregroundStyle(blue)
                 }
                 .accessibilityLabel("发送视频")
+                Button { showEmoji.toggle() } label: {
+                    Image(systemName: showEmoji ? "face.smiling.fill" : "face.smiling")
+                        .font(.system(size: 20)).foregroundStyle(blue)
+                }
+                .accessibilityLabel("表情")
                 Button { toggleRecording() } label: {
                     Image(systemName: recording ? "stop.circle.fill" : "mic.fill")
                         .font(.system(size: 20))
@@ -915,6 +936,17 @@ struct ChatView: View {
                 .accessibilityLabel("发送消息")
             }
             .padding(.horizontal, 12).padding(.vertical, 10)
+            if showEmoji {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(emojis, id: \.self) { emoji in
+                            Button { draft += emoji } label: { Text(emoji).font(.system(size: 26)) }
+                        }
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                }
+                .background(Color(uiColor: .secondarySystemBackground))
+            }
         }
         .background(Color(uiColor: .systemBackground))
         .overlay(alignment: .top) { Divider() }
@@ -948,6 +980,19 @@ struct MessageRow: View {
                     .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 8))
                 }
                 content
+                if let buttons = message.buttons, !buttons.isEmpty {
+                    VStack(spacing: 6) {
+                        ForEach(buttons, id: \.self) { label in
+                            Text(label)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(blue)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 7)
+                                .background(blue.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
+                        }
+                    }
+                    .frame(maxWidth: 220)
+                }
                 Text(message.date, format: .dateTime.hour().minute())
                     .font(.system(size: 10)).foregroundStyle(.tertiary).padding(.horizontal, 4)
             }
