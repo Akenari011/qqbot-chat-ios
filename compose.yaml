@@ -1,0 +1,26 @@
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    env_file: server/.env
+    environment:
+      QQBOT_DB_PATH: /data/messages.sqlite3
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - messages:/data
+    restart: unless-stopped
+  event-bridge:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    env_file: server/.env
+    environment:
+      QQBOT_INTERNAL_INGEST_URL: http://gateway:8080/internal/qqbot/incoming
+    command: ["python", "event_bridge.py"]
+    depends_on:
+      - gateway
+    restart: unless-stopped
+volumes:
+  messages:

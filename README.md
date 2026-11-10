@@ -31,3 +31,9 @@ GitHub Actions 在 Ubuntu 执行服务端测试、在 macOS 执行无签名 iOS 
 3. 生产部署需要 HTTPS、登录限流和审计；12 小时签名令牌通过轮换会话签名密钥整体失效，尚无单个令牌撤销机制。
 
 官方资料：[QQ 消息收发概述](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/overview.html) · [QQ access_token](https://bot.q.qq.com/wiki/develop/api-v2/dev-prepare/access-token.html) · [BotPy SDK](https://github.com/tencent-connect/botpy) · [Telegram iOS README](https://github.com/TelegramMessenger/Telegram-iOS/blob/master/README.md) · [Telegram API Terms](https://core.telegram.org/api/terms)
+
+## 容器部署
+
+将 `server/.env.example` 复制为仅服务器可读的 `server/.env`，填入真实配置；不要提交该文件。执行 `docker compose up -d --build` 同时启动网关和事件桥。网关仅发布到 `127.0.0.1:8080`；使用 HTTPS 反向代理对外提供 `/api/qqbot/`，不要代理 `/internal/`。SQLite 使用独立 volume 持久化。
+
+本轮仅验证 Compose YAML，当前环境没有 Docker，容器构建和长期运行尚未验证。公开仓库和镜像上下文均排除本地 `.env`、数据库及日志。
