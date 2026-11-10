@@ -361,13 +361,26 @@ final class ChatStore {
             target = author["user_openid"] as? String ?? ""
         }
         guard !target.isEmpty, let id = payload["id"] as? String else { return }
-        let name: String
+        let conversationName: String
         if isChannel {
-            name = "频道 " + String(target.suffix(6))
+            conversationName = "频道 " + String(target.suffix(6))
         } else if isGroup {
-            name = "群聊 " + String(target.suffix(6))
+            conversationName = "群聊 " + String(target.suffix(6))
         } else {
-            name = author["username"] as? String ?? "QQ 用户"
+            conversationName = author["username"] as? String ?? "QQ 用户"
+        }
+        let memberID = author["member_openid"] as? String ?? author["id"] as? String ?? ""
+        let authorName: String
+        if isChannel || isGroup {
+            if let username = author["username"] as? String, !username.isEmpty {
+                authorName = username
+            } else if !memberID.isEmpty {
+                authorName = "成员 " + String(memberID.suffix(6))
+            } else {
+                authorName = "成员"
+            }
+        } else {
+            authorName = conversationName
         }
         let content = payload["content"] as? String ?? ""
         let attachments = payload["attachments"] as? [[String: Any]] ?? []
@@ -390,13 +403,13 @@ final class ChatStore {
             }
         }
         let message = ChatMessage(
-            id: id, text: content, timestamp: timestamp, fromBot: false, authorName: name,
+            id: id, text: content, timestamp: timestamp, fromBot: false, authorName: authorName,
             imageURL: (!isVideo && !isAudio) ? remote : nil,
             videoURL: isVideo ? remote : nil,
             audioURL: isAudio ? remote : nil,
             buttons: buttonLabels.isEmpty ? nil : buttonLabels
         )
-        append(message, target: target, scene: isChannel ? "channel" : (isGroup ? "group" : "c2c"), name: name, markUnread: activeConversationID != target, replyID: id)
+        append(message, target: target, scene: isChannel ? "channel" : (isGroup ? "group" : "c2c"), name: conversationName, markUnread: activeConversationID != target, replyID: id)
         if let remote {
             downloadMedia(remote, target: target, messageID: id, kind: isVideo ? "video" : (isAudio ? "audio" : "image"))
         }
