@@ -519,17 +519,26 @@ final class ChatStore {
 
     func recallMessage(conversationID: String, messageID: String) async {
         guard let conversation = conversation(conversationID) else { return }
-        guard conversation.scene == "channel" else {
-            error = "当前仅频道消息支持撤回。"
-            return
-        }
         let encoded = conversationID.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? conversationID
+        let path: String
+        switch conversation.scene {
+        case "c2c":
+            path = "/v2/users/" + encoded + "/messages/" + messageID
+        case "group":
+            path = "/v2/groups/" + encoded + "/messages/" + messageID
+        case "channel":
+            path = "/channels/" + encoded + "/messages/" + messageID + "?hidetip=false"
+        default:
+            path = "/dms/" + encoded + "/messages/" + messageID + "?hidetip=false"
+        }
+        log("撤回消息 " + conversation.scene + " " + String(messageID.suffix(8)))
         do {
-            _ = try await api("/channels/" + encoded + "/messages/" + messageID + "/recall", body: [:])
+            try await apiVoid(path, method: "DELETE")
             deleteMessage(conversationID: conversationID, messageID: messageID)
             error = nil
+            log("撤回成功")
         } catch {
-            self.error = "撤回失败，可能需要频道管理权限。"
+            self.error = "撤回失败：仅能撤回 2 分钟内、机器人自己发送的消息。"
         }
     }
 
@@ -584,6 +593,18 @@ final class ChatStore {
             throw URLError(.badServerResponse)
         }
         return result
+    }
+
+    private func apiVoid(_ path: String, method: String) async throws {
+        var request = URLRequest(url: URL(string: "https://api.bot.qq.com" + path)!)
+        request.httpMethod = method
+        request.setValue("QQBot " + token, forHTTPHeaderField: "Authorization")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            let detail = String(data: data.prefix(200), encoding: .utf8) ?? ""
+            log("HTTP " + String((response as? HTTPURLResponse)?.statusCode ?? 0) + " " + method + " " + path + " " + detail)
+            throw URLError(.badServerResponse)
+        }
     }
 
     private func apiAny(_ path: String, method: String = "GET", body: [String: Any]? = nil) async throws -> Any {
@@ -1148,6 +1169,7 @@ final class ChatStore {
             let result = try await api(path + encoded + "/messages", body: body)
             guard let messageID = result["id"] as? String else { throw URLError(.badServerResponse) }
             log("发送成功 type=" + (mediaType ?? "text") + " id=" + String(messageID.suffix(8)) + " content=" + String(text.prefix(40)))
+            error = nil
             if let current = conversations.firstIndex(where: { $0.id == id }),
                let mi = conversations[current].messages.firstIndex(where: { $0.id == tempID }) {
                 let old = conversations[current].messages[mi]
@@ -1610,10 +1632,20 @@ struct ChatView: View {
     var body: some View {
         VStack(spacing: 0) {
             if let error = store.error {
-                Text(error).font(.system(size: 12)).foregroundStyle(.red)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 14).padding(.vertical, 6)
-                    .background(Color.red.opacity(0.06))
+                HStack(spacing: 8) {
+                    Text(error).font(.system(size: 12)).foregroundStyle(.red)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Button { store.error = nil } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.red.opacity(0.7))
+                    }
+                    .accessibilityLabel("关闭提示")
+                }
+                .padding(.horizontal, 14).padding(.vertical, 6)
+                .background(Color.red.opacity(0.06))
+                .task(id: error) {
+                    try? await Task.sleep(nanoseconds: 6_000_000_000)
+                    if store.error == error { store.error = nil }
+                }
             }
             messageList
             composer
@@ -1937,32 +1969,23 @@ struct ChatView: View {
                 .padding(.horizontal, 12).padding(.vertical, 6)
                 .background(Color(uiColor: .secondarySystemBackground))
             }
-            HStack(spacing: 8) {
-                PhotosPicker(selection: $pickerItems, maxSelectionCount: 9, matching: .images, photoLibrary: .shared()) {
-                    Image(systemName: "photo.on.rectangle").font(.system(size: 20)).foregroundStyle(blue)
-                }
-                .accessibilityLabel("发送图片，最多九张")
-                PhotosPicker(selection: $videoItem, matching: .videos, photoLibrary: .shared()) {
-                    Image(systemName: "video").font(.system(size: 20)).foregroundStyle(blue)
-                }
-                .accessibilityLabel("发送视频")
-                Button { showFileImporter = true } label: {
-                    Image(systemName: "paperclip").font(.system(size: 20)).foregroundStyle(blue)
-                }
-                .accessibilityLabel("发送文件")
-                Button { toggleRecording() } label: {
-                    Image(systemName: recording ? "stop.circle.fill" : "mic.fill")
-                        .font(.system(size: 20))
-                        .foregroundStyle(recording ? Color.red : blue)
-                }
-                .accessibilityLabel(recording ? "停止录音并发送" : "录制语音")
-                ComposerInput(store: store, conversationID: conversationID, quoting: quoting, onSend: { text, quote in
+            ComposerInput(
+                store: store,
+                conversationID: conversationID,
+                quoting: quoting,
+                pickerItems: $pickerItems,
+                videoItem: $videoItem,
+                showFileImporter: $showFileImporter,
+                recording: $recording,
+                onToggleRecording: { toggleRecording() },
+                onSend: { text, quote in
                     quoting = nil
                     store.drafts[conversationID] = ""
                     UserDefaults.standard.set(store.drafts, forKey: "drafts")
                     Task { await store.sendText(text, to: conversationID, quote: quote) }
-                }, onFocus: { scrollTick += 1 })
-            }
+                },
+                onFocus: { scrollTick += 1 }
+            )
             .padding(.horizontal, 12).padding(.vertical, 10)
         }
         .background(.clear)
@@ -1974,12 +1997,19 @@ struct ComposerInput: View {
     let store: ChatStore
     let conversationID: String
     let quoting: ChatMessage?
+    @Binding var pickerItems: [PhotosPickerItem]
+    @Binding var videoItem: PhotosPickerItem?
+    @Binding var showFileImporter: Bool
+    @Binding var recording: Bool
+    let onToggleRecording: () -> Void
     let onSend: (String, ChatMessage?) -> Void
     let onFocus: () -> Void
     @State private var text = ""
     @FocusState private var isFocused: Bool
     @State private var showEmoji = false
     @State private var showMentions = false
+    @State private var showPhotoPicker = false
+    @State private var showVideoPicker = false
     private let emojis = ["😀","😂","🥰","😎","🤔","😭","👍","👎","❤️","🎉","🔥","🌹","🍀","☀️","🌙","⭐️","✅","❌","🤝","🙏","😴","🤣","😅","🥳","😇","🤩","😋","🤗"]
     private let blue = Color(red: 0.20, green: 0.55, blue: 0.88)
 
@@ -1998,39 +2028,65 @@ struct ComposerInput: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                Button { showEmoji.toggle() } label: {
-                    Image(systemName: showEmoji ? "face.smiling.fill" : "face.smiling")
-                        .font(.system(size: 20)).foregroundStyle(blue)
-                        .frame(width: 40, height: 40)
-                }
-                .accessibilityLabel("表情")
-                if store.conversation(conversationID)?.scene == "group" {
-                    Button { showMentions = true } label: {
-                        Image(systemName: "at").font(.system(size: 20)).foregroundStyle(blue)
-                            .frame(width: 40, height: 40)
+            HStack(spacing: 8) {
+                HStack(spacing: 2) {
+                    Menu {
+                        Button { showPhotoPicker = true } label: { Label("照片", systemImage: "photo.on.rectangle") }
+                        Button { showVideoPicker = true } label: { Label("视频", systemImage: "video") }
+                        Button { showFileImporter = true } label: { Label("文件", systemImage: "doc") }
+                        Button { onToggleRecording() } label: {
+                            Label(recording ? "停止录音" : "录制语音", systemImage: recording ? "stop.circle" : "mic")
+                        }
+                        if store.conversation(conversationID)?.scene == "group" {
+                            Button { showMentions = true } label: { Label("提及成员", systemImage: "at") }
+                        }
+                    } label: {
+                        Image(systemName: "paperclip")
+                            .font(.system(size: 20)).foregroundStyle(blue)
+                            .frame(width: 36, height: 36)
                     }
-                    .accessibilityLabel("提及成员")
+                    .accessibilityLabel("附件")
+
+                    TextField("消息", text: $text, axis: .vertical).lineLimit(1...5)
+                        .focused($isFocused)
+                        .padding(.vertical, 9)
+
+                    Button { showEmoji.toggle() } label: {
+                        Image(systemName: showEmoji ? "face.smiling.fill" : "face.smiling")
+                            .font(.system(size: 20)).foregroundStyle(blue)
+                            .frame(width: 36, height: 36)
+                    }
+                    .accessibilityLabel("表情")
                 }
-                TextField("消息", text: $text, axis: .vertical).lineLimit(1...5)
-                .focused($isFocused)
-                .padding(.horizontal, 14).padding(.vertical, 9)
+                .padding(.leading, 4).padding(.trailing, 6)
                 .glassEffect(.regular, in: Capsule())
-            Button {
-                let value = text
-                let quote = quoting
-                text = ""
-                onSend(value, quote)
-            } label: {
-                if store.sendingConversationID == conversationID {
-                    ProgressView().frame(width: 40, height: 40)
-                } else {
-                    Image(systemName: "arrow.up").font(.system(size: 16, weight: .bold)).foregroundStyle(.white)
-                        .frame(width: 40, height: 40).background(blue, in: Circle())
+
+                Button {
+                    if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        onToggleRecording()
+                    } else {
+                        let value = text
+                        let quote = quoting
+                        text = ""
+                        onSend(value, quote)
+                    }
+                } label: {
+                    if store.sendingConversationID == conversationID {
+                        ProgressView().frame(width: 40, height: 40)
+                    } else if recording {
+                        Image(systemName: "stop.fill").font(.system(size: 16, weight: .bold)).foregroundStyle(.white)
+                            .frame(width: 40, height: 40).background(Color.red, in: Circle())
+                    } else if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Image(systemName: "mic.fill").font(.system(size: 17)).foregroundStyle(blue)
+                            .frame(width: 40, height: 40)
+                            .glassEffect(.regular, in: Circle())
+                    } else {
+                        Image(systemName: "arrow.up").font(.system(size: 16, weight: .bold)).foregroundStyle(.white)
+                            .frame(width: 40, height: 40).background(blue, in: Circle())
+                    }
                 }
-            }
-            .disabled(store.sendingConversationID != nil || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .accessibilityLabel("发送消息")
+                .disabled(store.sendingConversationID != nil)
+                .accessibilityLabel("发送或录音")
             }
             if showEmoji {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -2065,6 +2121,8 @@ struct ComposerInput: View {
             store.drafts[conversationID] = text
             UserDefaults.standard.set(store.drafts, forKey: "drafts")
         }
+        .photosPicker(isPresented: $showPhotoPicker, selection: $pickerItems, maxSelectionCount: 9, matching: .images)
+        .photosPicker(isPresented: $showVideoPicker, selection: $videoItem, matching: .videos)
     }
 }
 
