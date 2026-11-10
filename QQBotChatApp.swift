@@ -30,10 +30,11 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     var quotedText: String?
     var quotedID: String?
     var duration: Double?
+    var authorID: String?
     var buttons: [String]?
     var status: String?
 
-    init(id: String, text: String, timestamp: String, fromBot: Bool, authorName: String, imageURL: String? = nil, localImage: String? = nil, videoURL: String? = nil, videoFile: String? = nil, audioURL: String? = nil, audioFile: String? = nil, fileLocal: String? = nil, fileName: String? = nil, quotedText: String? = nil, quotedID: String? = nil, duration: Double? = nil, buttons: [String]? = nil, status: String? = nil) {
+    init(id: String, text: String, timestamp: String, fromBot: Bool, authorName: String, imageURL: String? = nil, localImage: String? = nil, videoURL: String? = nil, videoFile: String? = nil, audioURL: String? = nil, audioFile: String? = nil, fileLocal: String? = nil, fileName: String? = nil, quotedText: String? = nil, quotedID: String? = nil, duration: Double? = nil, authorID: String? = nil, buttons: [String]? = nil, status: String? = nil) {
         self.id = id
         self.text = text
         self.timestamp = timestamp
@@ -50,6 +51,7 @@ struct ChatMessage: Identifiable, Codable, Equatable {
         self.quotedText = quotedText
         self.quotedID = quotedID
         self.duration = duration
+        self.authorID = authorID
         self.buttons = buttons
         self.status = status
     }
@@ -706,6 +708,28 @@ final class ChatStore {
 
     // MARK: - Incoming messages
 
+    private func cleanedContent(_ raw: String, payload: [String: Any]) -> String {
+        var map: [String: String] = [:]
+        if let mentions = payload["mentions"] as? [[String: Any]] {
+            for mention in mentions {
+                if let id = (mention["id"] as? String) ?? (mention["user_openid"] as? String),
+                   let name = (mention["username"] as? String) ?? (mention["nick"] as? String) {
+                    map[id] = name
+                }
+            }
+        }
+        let pattern = "<@!?([A-Za-z0-9_\-]+)>"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return raw }
+        let ns = raw as NSString
+        var result = raw
+        for match in regex.matches(in: raw, range: NSRange(location: 0, length: ns.length)).reversed() {
+            let id = ns.substring(with: match.range(at: 1))
+            let name = map[id] ?? "成员 " + String(id.suffix(6))
+            result = result.replacingOccurrences(of: ns.substring(with: match.range), with: "@" + name)
+        }
+        return result
+    }
+
     private func handleIncoming(kind: String, payload: [String: Any]) {
         let author = payload["author"] as? [String: Any] ?? [:]
         let isChannel = kind == "AT_MESSAGE_CREATE" || kind == "MESSAGE_CREATE"
@@ -740,7 +764,7 @@ final class ChatStore {
         } else {
             authorName = conversationName
         }
-        let content = payload["content"] as? String ?? ""
+        let content = cleanedContent(payload["content"] as? String ?? "", payload: payload)
         let attachments = payload["attachments"] as? [[String: Any]] ?? []
         let attachment = attachments.first
         let remote = attachment?["url"] as? String
@@ -768,6 +792,7 @@ final class ChatStore {
             videoURL: isVideo ? remote : nil,
             audioURL: isAudio ? remote : nil,
             quotedID: quotedID,
+            authorID: memberID.isEmpty ? nil : memberID,
             buttons: buttonLabels.isEmpty ? nil : buttonLabels
         )
         append(message, target: target, scene: isChannel ? "channel" : (isGroup ? "group" : "c2c"), name: conversationName, markUnread: activeConversationID != target, replyID: id)
@@ -1654,8 +1679,22 @@ struct ComposerInput: View {
     let onSend: (String, ChatMessage?) -> Void
     @State private var text = ""
     @State private var showEmoji = false
+    @State private var showMentions = false
     private let emojis = ["😀","😂","🥰","😎","🤔","😭","👍","👎","❤️","🎉","🔥","🌹","🍀","☀️","🌙","⭐️","✅","❌","🤝","🙏","😴","🤣","😅","🥳","😇","🤩","😋","🤗"]
     private let blue = Color(red: 0.20, green: 0.55, blue: 0.88)
+
+    private var mentionMembers: [(String, String)] {
+        guard let conversation = store.conversation(conversationID) else { return [] }
+        var seen = Set<String>()
+        var result: [(String, String)] = []
+        for message in conversation.messages {
+            if let id = message.authorID, !seen.contains(id) {
+                seen.insert(id)
+                result.append((id, message.authorName))
+            }
+        }
+        return result
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1665,6 +1704,12 @@ struct ComposerInput: View {
                         .font(.system(size: 20)).foregroundStyle(blue)
                 }
                 .accessibilityLabel("表情")
+                if store.conversation(conversationID)?.scene == "group" {
+                    Button { showMentions = true } label: {
+                        Image(systemName: "at").font(.system(size: 20)).foregroundStyle(blue)
+                    }
+                    .accessibilityLabel("提及成员")
+                }
                 TextField("消息", text: $text, axis: .vertical).lineLimit(1...5)
                 .padding(.horizontal, 12).padding(.vertical, 9)
                 .background(Color(uiColor: .secondarySystemBackground), in: Capsule())
@@ -1694,6 +1739,19 @@ struct ComposerInput: View {
                     .padding(.horizontal, 12).padding(.vertical, 8)
                 }
                 .background(Color(uiColor: .secondarySystemBackground))
+            }
+        }
+        .sheet(isPresented: $showMentions) {
+            NavigationStack {
+                List(mentionMembers, id: \.0) { member in
+                    Button("@" + member.1) {
+                        text += "<@!" + member.0 + "> "
+                        showMentions = false
+                    }
+                }
+                .navigationTitle("提及成员")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("完成") { showMentions = false } } }
             }
         }
         .onAppear { text = store.drafts[conversationID] ?? "" }
