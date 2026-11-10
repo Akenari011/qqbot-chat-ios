@@ -1887,6 +1887,7 @@ struct ChatView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 0) {
+                        // Telegram: 0.2s easeInOut for message list changes
                         if let conversation {
                             if conversation.messages.count > renderLimit {
                                 Button("加载更早消息") { renderLimit += 100 }
@@ -1903,6 +1904,7 @@ struct ChatView: View {
                         }
                     }
                     .padding(.horizontal, 12).padding(.vertical, 12)
+                    .animation(.easeInOut(duration: 0.2), value: visibleMessages.count)
                     Color.clear.frame(height: 1).id("chatBottom")
                 }
                 .background(chatBackground)
@@ -2303,7 +2305,7 @@ struct MessageRow: View {
         .task(id: message.videoFile) {
             guard let name = message.videoFile, let url = store.mediaURL(named: name), videoThumbnail == nil else { return }
             let thumbnail = await Task.detached(priority: .utility) { () -> UIImage? in
-                let asset = AVAsset(url: url)
+                let asset = AVURLAsset(url: url)
                 let generator = AVAssetImageGenerator(asset: asset)
                 generator.appliesPreferredTrackTransform = true
                 generator.maximumSize = CGSize(width: 480, height: 320)

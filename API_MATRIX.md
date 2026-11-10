@@ -12,7 +12,10 @@
 | post_c2c_file | 已接入 | 单聊富媒体上传（图片/视频/语音/文件） |
 | post_group_file | 已接入 | 群聊富媒体上传 |
 | 频道富媒体上传 | 已接入 | `/channels/{id}/files` |
-| recall_message（频道） | 已接入 | 长按频道消息撤回 |
+| recall（单聊） | 已接入 | `DELETE /v2/users/{openid}/messages/{id}`，2 分钟内 |
+| recall（群聊） | 已接入 | `DELETE /v2/groups/{openid}/messages/{id}`，2 分钟内 |
+| recall（子频道） | 已接入 | `DELETE /channels/{id}/messages/{id}?hidetip=false` |
+| recall（频道私信） | 已接入 | `DELETE /dms/{guild_id}/messages/{id}?hidetip=false` |
 | post_keyboard_message | 已接入 | 频道工具菜单可发送带按钮消息 |
 | patch_guild_message | 已接入 | 长按自己发送的频道消息可编辑 |
 | get_message（频道） | 待接入 | 拉取单条频道消息 |
@@ -57,7 +60,7 @@
 
 ## 说明
 
-- C2C 与群聊只提供消息收发、富媒体与按钮，不提供成员列表、撤回、置顶、表情回应等频道级能力。
+- C2C 与群聊提供消息收发、富媒体、按钮与撤回（2 分钟内），不提供成员列表、置顶、表情回应、公告等频道级能力。
 - 频道管理类 API 需要机器人在对应频道拥有管理权限；当前客户端没有频道选择页，频道会话由收到的事件自动建立。
 - 已接入 `me_guilds`、`get_guild_members`、`put_reaction`、`put_pin`。
 - 后续优先接入 `create_announce`（公告）、`get_schedules`（日程）、`post_keyboard_message`（发送按钮消息）与 `patch_guild_message`（编辑消息）。
