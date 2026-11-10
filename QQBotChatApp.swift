@@ -1617,7 +1617,7 @@ struct MessageRow: View {
                 HStack(spacing: 8) {
                     Image(systemName: playingAudio ? "pause.circle.fill" : "play.circle.fill").font(.system(size: 22))
                     Image(systemName: "waveform").font(.system(size: 16))
-                    Text(playingAudio ? "播放中" : (message.duration.map { "语音 (Int($0))″" } ?? "语音消息")).font(.system(size: 14))
+                    Text(playingAudio ? "播放中" : (message.duration.map { "语音 \(Int($0))″" } ?? "语音消息")).font(.system(size: 14))
                 }
                 .foregroundStyle(message.fromBot ? Color.white : Color.primary)
                 .padding(.horizontal, 12).padding(.vertical, 9)
