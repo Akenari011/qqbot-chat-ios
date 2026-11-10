@@ -32,10 +32,11 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     var duration: Double?
     var authorID: String?
     var authorAvatarURL: String? = nil
+    var reactions: [String: Int]? = nil
     var buttons: [String]?
     var status: String?
 
-    init(id: String, text: String, timestamp: String, fromBot: Bool, authorName: String, imageURL: String? = nil, localImage: String? = nil, videoURL: String? = nil, videoFile: String? = nil, audioURL: String? = nil, audioFile: String? = nil, fileLocal: String? = nil, fileName: String? = nil, quotedText: String? = nil, quotedID: String? = nil, duration: Double? = nil, authorID: String? = nil, authorAvatarURL: String? = nil, buttons: [String]? = nil, status: String? = nil) {
+    init(id: String, text: String, timestamp: String, fromBot: Bool, authorName: String, imageURL: String? = nil, localImage: String? = nil, videoURL: String? = nil, videoFile: String? = nil, audioURL: String? = nil, audioFile: String? = nil, fileLocal: String? = nil, fileName: String? = nil, quotedText: String? = nil, quotedID: String? = nil, duration: Double? = nil, authorID: String? = nil, authorAvatarURL: String? = nil, reactions: [String: Int]? = nil, buttons: [String]? = nil, status: String? = nil) {
         self.id = id
         self.text = text
         self.timestamp = timestamp
@@ -54,6 +55,7 @@ struct ChatMessage: Identifiable, Codable, Equatable {
         self.duration = duration
         self.authorID = authorID
         self.authorAvatarURL = authorAvatarURL
+        self.reactions = reactions
         self.buttons = buttons
         self.status = status
     }
@@ -679,7 +681,7 @@ final class ChatStore {
                     if resume, let sid = sessionID, let seq = sequence {
                         try await packet(["op": 6, "d": ["token": "QQBot " + token, "session_id": sid, "seq": seq]])
                     } else {
-                        try await packet(["op": 2, "d": ["token": "QQBot " + token, "intents": (1 << 25) | (1 << 26) | (1 << 30), "shard": [0, 1], "properties": [:]]])
+                        try await packet(["op": 2, "d": ["token": "QQBot " + token, "intents": (1 << 10) | (1 << 25) | (1 << 26) | (1 << 30), "shard": [0, 1], "properties": [:]]])
                     }
                     startHeartbeat(interval: interval)
                 } else if op == 11 {
@@ -707,6 +709,8 @@ final class ChatStore {
                     handleIncoming(kind: kind, payload: payload)
                 } else if kind == "INTERACTION_CREATE" {
                     handleInteraction(payload)
+                } else if kind == "MESSAGE_REACTION_ADD" || kind == "MESSAGE_REACTION_REMOVE" {
+                    handleReactionEvent(kind: kind, payload: payload)
                 }
             }
         } catch {
@@ -822,6 +826,46 @@ final class ChatStore {
             92: "🕺", 93: "😨", 94: "😤", 95: "🌀", 96: "🙇", 97: "😳", 98: "🤸",
             99: "👋", 100: "😆", 101: "🕺", 102: "😘", 103: "☯️", 104: "☯️", 105: "🥺"
         ]
+    }
+
+    private func handleReactionEvent(kind: String, payload: [String: Any]) {
+        guard let target = payload["target"] as? [String: Any],
+              let messageID = target["id"] as? String,
+              let channelID = payload["channel_id"] as? String else { return }
+        let emoji = payload["emoji"] as? [String: Any] ?? [:]
+        let emojiID = emoji["id"] as? String ?? "👍"
+        let adding = kind == "MESSAGE_REACTION_ADD"
+        guard let ci = conversations.firstIndex(where: { $0.id == channelID }),
+              let mi = conversations[ci].messages.firstIndex(where: { $0.id == messageID }) else {
+            log("收到表情回应但未找到本地消息 " + String(messageID.suffix(6)))
+            return
+        }
+        var reactions = conversations[ci].messages[mi].reactions ?? [:]
+        let current = reactions[emojiID] ?? 0
+        let next = max(0, current + (adding ? 1 : -1))
+        if next == 0 { reactions.removeValue(forKey: emojiID) } else { reactions[emojiID] = next }
+        conversations[ci].messages[mi].reactions = reactions.isEmpty ? nil : reactions
+        saveConversations()
+        log((adding ? "表情回应 +" : "表情回应 -") + emojiID + " " + String(messageID.suffix(6)))
+    }
+
+    func fetchChannelNameIfNeeded(_ id: String) async {
+        guard let index = conversations.firstIndex(where: { $0.id == id }),
+              conversations[index].scene == "channel",
+              conversations[index].remark?.isEmpty ?? true else { return }
+        guard conversations[index].name.hasPrefix("频道 ") else { return }
+        let encoded = id.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? id
+        do {
+            let raw = try await apiAny("/channels/" + encoded)
+            guard let dict = raw as? [String: Any],
+                  let name = dict["name"] as? String, !name.isEmpty,
+                  let current = conversations.firstIndex(where: { $0.id == id }) else { return }
+            conversations[current].name = name
+            saveConversations()
+            log("子频道名已获取 " + name)
+        } catch {
+            log("子频道信息获取失败，继续使用默认名称")
+        }
     }
 
     private func handleIncoming(kind: String, payload: [String: Any]) {
@@ -942,6 +986,8 @@ final class ChatStore {
             conversations.append(conversation)
             if scene == "group" {
                 Task { await fetchGroupInfoIfNeeded(target) }
+            } else if scene == "channel" {
+                Task { await fetchChannelNameIfNeeded(target) }
             }
         }
         sortConversations()
@@ -2115,22 +2161,6 @@ struct ChatView: View {
 
     private var composer: some View {
         VStack(spacing: 0) {
-            if let quoting {
-                HStack(spacing: 8) {
-                    RoundedRectangle(cornerRadius: 1.5).fill(blue).frame(width: 3, height: 34)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(quoting.fromBot ? "引用自己" : quoting.authorName)
-                            .font(.system(size: 11, weight: .semibold)).foregroundStyle(blue)
-                        Text(quoting.summary).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                    Spacer()
-                    Button { self.quoting = nil } label: {
-                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-                    }
-                }
-                .padding(.horizontal, 12).padding(.vertical, 6)
-                .background(Color(uiColor: .secondarySystemBackground))
-            }
             ComposerInput(
                 store: store,
                 conversationID: conversationID,
@@ -2147,6 +2177,7 @@ struct ChatView: View {
                     Task { await store.sendText(text, to: conversationID, quote: quote) }
                 },
                 onFocus: { scrollTick += 1 },
+                onCancelQuote: { quoting = nil },
                 focusTick: focusComposerTick
             )
             .padding(.horizontal, 12).padding(.vertical, 10)
@@ -2167,6 +2198,7 @@ struct ComposerInput: View {
     let onToggleRecording: () -> Void
     let onSend: (String, ChatMessage?) -> Void
     let onFocus: () -> Void
+    let onCancelQuote: () -> Void
     let focusTick: Int
     @State private var text = ""
     @FocusState private var isFocused: Bool
@@ -2192,6 +2224,31 @@ struct ComposerInput: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if let quoting {
+                HStack(spacing: 8) {
+                    RoundedRectangle(cornerRadius: 1).fill(blue)
+                        .frame(width: 2, height: 34)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(quoting.fromBot ? "引用自己" : quoting.authorName)
+                            .font(.system(size: 14, weight: .semibold)).foregroundStyle(blue)
+                            .lineLimit(1)
+                        Text(quoting.summary)
+                            .font(.system(size: 14)).foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                    Button(action: onCancelQuote) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 22, height: 22)
+                    }
+                    .accessibilityLabel("取消引用")
+                }
+                .padding(.horizontal, 11).padding(.vertical, 3)
+                .background(Color(uiColor: .secondarySystemBackground).opacity(0.55), in: RoundedRectangle(cornerRadius: 12))
+                .padding(.horizontal, 4).padding(.bottom, 6)
+            }
             HStack(spacing: 8) {
                 HStack(spacing: 2) {
                     Menu {
@@ -2641,7 +2698,29 @@ struct MessageRow: View {
                 )
                 .fill(message.fromBot ? blue : Color(uiColor: .systemBackground))
             )
+            if let reactions = message.reactions, !reactions.isEmpty {
+                HStack(spacing: 4) {
+                    ForEach(reactions.keys.sorted(), id: \.self) { key in
+                        HStack(spacing: 3) {
+                            Text(reactionEmoji(key))
+                                .font(.system(size: 12))
+                            Text("\(reactions[key] ?? 1)")
+                                .font(.system(size: 11, weight: .semibold))
+                        }
+                        .padding(.horizontal, 7).padding(.vertical, 3)
+                        .background(Color(uiColor: .secondarySystemBackground), in: Capsule())
+                    }
+                }
+                .padding(.top, 3)
+            }
         }
+    }
+
+    private func reactionEmoji(_ id: String) -> String {
+        if let code = Int(id), let scalar = UnicodeScalar(code), scalar.properties.isEmoji {
+            return String(Character(scalar))
+        }
+        return "👍"
     }
 
     @ViewBuilder

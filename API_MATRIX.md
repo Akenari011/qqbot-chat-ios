@@ -20,7 +20,7 @@
 | patch_guild_message | 已接入 | 长按自己发送的频道消息可编辑 |
 | get_message（频道） | 待接入 | 拉取单条频道消息 |
 | create_dms / post_dms | 不适用 | 私信频道会话，需 guild 场景 |
-| on_interaction_result | 待接入 | 按钮点击结果回执 |
+| on_interaction_result | 待接入 | 按钮点击结果回执（客户端无需持久化） |
 | get_ws_url | 已接入 | 获取 WebSocket 网关 |
 
 ## 用户与频道
@@ -29,7 +29,8 @@
 | --- | --- | --- |
 | me | 已接入 | 设置页显示机器人名称 |
 | me_guilds | 已接入 | 设置 → 频道列表 |
-| get_guild / get_channels / get_channel | 待接入 | 频道与子频道信息 |
+| get_guild / get_channels | 已接入 | 频道列表与子频道列表 |
+| get_channel | 已接入 | 频道会话自动拉取子频道名称 |
 | get_guild_members / get_guild_member | 已接入 | 频道页加载成员列表 |
 | get_guild_roles / create/update/delete_guild_role | 不适用 | 角色管理后台能力 |
 | get_voice_members | 不适用 | 语音频道成员 |
@@ -55,12 +56,12 @@
 | AT_MESSAGE_CREATE | 已接入 | 频道 @机器人消息 |
 | MESSAGE_CREATE | 已接入 | 频道消息（私域） |
 | INTERACTION_CREATE | 已接入 | 按钮点击 |
-| MESSAGE_REACTION_ADD/REMOVE | 待接入 | 频道表情回应事件 |
+| MESSAGE_REACTION_ADD/REMOVE | 已接入 | 收到后在消息气泡下显示回应徽章（intent 1<<10） |
 | GUILD_CREATE/UPDATE/DELETE | 不适用 | 频道结构变化 |
 
 ## 说明
 
 - C2C 与群聊提供消息收发、富媒体、按钮与撤回（2 分钟内），不提供成员列表、置顶、表情回应、公告等频道级能力。
 - 频道管理类 API 需要机器人在对应频道拥有管理权限；当前客户端没有频道选择页，频道会话由收到的事件自动建立。
-- 已接入 `me_guilds`、`get_guild_members`、`put_reaction`、`put_pin`。
-- 后续优先接入 `create_announce`（公告）、`get_schedules`（日程）、`post_keyboard_message`（发送按钮消息）与 `patch_guild_message`（编辑消息）。
+- 已接入 `me_guilds`、`get_guild_members`、`put_reaction`、`put_pin`、`create_announce`、`get_schedules`、`post_keyboard_message`、`patch_guild_message`、四种 `recall`、`MESSAGE_REACTION_ADD/REMOVE`、`get_channel`。
+- 剩余「待接入」仅 `get_message`（拉取单条频道消息）与 `on_interaction_result`（按钮回执），均为低频辅助能力；标注「不适用」的属于频道后台管理或语音房控制，与聊天客户端场景无关。
