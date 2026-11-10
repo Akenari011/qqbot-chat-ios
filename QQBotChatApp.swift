@@ -1054,6 +1054,19 @@ final class ChatStore {
 
     // MARK: - Images
 
+    func retryMedia(messageID: String, conversationID: String) {
+        guard let conversation = conversation(conversationID),
+              let message = conversation.messages.first(where: { $0.id == messageID }) else { return }
+        let remote = message.imageURL ?? message.videoURL ?? message.audioURL
+        guard let remote else {
+            error = "该媒体没有可用的下载地址。"
+            return
+        }
+        let kind = message.isVideo ? "video" : (message.isAudio ? "audio" : "image")
+        log("重试下载媒体 " + String(messageID.suffix(6)))
+        downloadMedia(remote, target: conversationID, messageID: messageID, kind: kind)
+    }
+
     private func downloadMedia(_ urlString: String, target: String, messageID: String, kind: String) {
         Task {
             guard let url = URL(string: urlString) else { return }
@@ -2512,6 +2525,17 @@ struct MessageRow: View {
     @State private var dragOffset: CGFloat = 0
     private let replyThreshold: CGFloat = 72
     // TG ChatMessageItemCommon.swift: width-36 (<=500pt) else width*0.85
+    // Short messages should be a narrow bubble, not a full-width bar.
+    private var textBubbleWidth: CGFloat {
+        let plain = message.text.isEmpty ? "[空消息]" : message.text
+        if plain.contains("
+") { return bubbleMaxWidth - 22 }
+        let font = UIFont.systemFont(ofSize: 17 * store.fontScale)
+        let measured = (plain as NSString).size(withAttributes: [.font: font]).width
+        let needed = ceil(measured) + 22 + 46 + 8
+        return min(needed, bubbleMaxWidth - 22)
+    }
+
     private var bubbleMaxWidth: CGFloat {
         availableWidth <= 500 ? max(1, availableWidth - 36) : max(1, floor(availableWidth * 0.85))
     }
@@ -2576,6 +2600,19 @@ struct MessageRow: View {
                     .onTapGesture { if let id = message.quotedID { onJump(id) } }
                 }
                 content
+                    .overlay(alignment: .bottomTrailing) {
+                        if message.isImage || message.isVideo || message.isAudio {
+                            HStack(spacing: 3) {
+                                Text(message.date, format: .dateTime.hour().minute())
+                                    .font(.system(size: 11))
+                                if message.fromBot { TGDoubleCheck(color: .white.opacity(0.9)) }
+                            }
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .background(Color.black.opacity(0.35), in: Capsule())
+                            .padding(.trailing, 6).padding(.bottom, 6)
+                        }
+                    }
                 if let buttons = message.buttons, !buttons.isEmpty {
                     VStack(spacing: 6) {
                         ForEach(buttons, id: \.self) { label in
@@ -2588,17 +2625,6 @@ struct MessageRow: View {
                         }
                     }
                     .frame(maxWidth: 220)
-                }
-                if message.isImage || message.isVideo || message.isAudio {
-                    HStack(spacing: 3) {
-                        Text(message.date, format: .dateTime.hour().minute())
-                            .font(.system(size: 11))
-                        if message.fromBot { TGDoubleCheck(color: .white.opacity(0.9)) }
-                    }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(Color.black.opacity(0.35), in: Capsule())
-                    .padding(.trailing, 6).padding(.bottom, 6)
                 }
             }
             .frame(maxWidth: bubbleMaxWidth, alignment: message.fromBot ? .trailing : .leading)
@@ -2761,14 +2787,19 @@ struct MessageRow: View {
                 .background(Color.white, in: RoundedRectangle(cornerRadius: 16))
             }
         } else if message.imageURL != nil || message.videoURL != nil || message.audioURL != nil {
-            ZStack {
-                RoundedRectangle(cornerRadius: 15).fill(Color(uiColor: .tertiarySystemBackground))
-                VStack(spacing: 6) {
-                    ProgressView()
-                    Text(message.isVideo ? "视频" : (message.isAudio ? "语音" : "图片")).font(.system(size: 11)).foregroundStyle(.secondary)
+            Button { store.retryMedia(messageID: message.id, conversationID: conversationID) } label: {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 15).fill(Color.white)
+                    VStack(spacing: 6) {
+                        Image(systemName: message.isVideo ? "play.circle" : (message.isAudio ? "waveform" : "photo"))
+                            .font(.system(size: 28)).foregroundStyle(.secondary)
+                        Text("点击加载" + (message.isVideo ? "视频" : (message.isAudio ? "语音" : "图片")))
+                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                    }
                 }
+                .frame(width: 160, height: 160)
             }
-            .frame(width: 160, height: 160)
+            .buttonStyle(.plain)
         } else {
             VStack(alignment: .leading, spacing: 3) {
                 if !message.fromBot {
@@ -2781,7 +2812,7 @@ struct MessageRow: View {
                     Text(markdownText(message.text.isEmpty ? "[空消息]" : message.text))
                         .font(.system(size: 17 * store.fontScale))
                         .foregroundStyle(message.fromBot ? Color.white : Color.primary)
-                        .frame(maxWidth: bubbleMaxWidth - 22, alignment: .leading)
+                        .frame(maxWidth: textBubbleWidth - 22, alignment: .leading)
                         .padding(.trailing, 46)
                     HStack(spacing: 3) {
                         Text(message.date, format: .dateTime.hour().minute())
@@ -2794,6 +2825,7 @@ struct MessageRow: View {
                 }
             }
             .padding(.horizontal, 11).padding(.vertical, 6)
+            .frame(maxWidth: textBubbleWidth, alignment: .leading)
             .background(
                 UnevenRoundedRectangle(
                     cornerRadii: messageBubbleRadii(
