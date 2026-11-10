@@ -2486,63 +2486,6 @@ func tgOutgoingFill() -> LinearGradient {
     )
 }
 
-// TG ChatSwipeToReplyRecognizer: a direction-limited UIPanGestureRecognizer.
-// Vertical drags are rejected up front so the ScrollView keeps its pan gesture.
-// A transparent row layer whose hitTest passes touches through to the SwiftUI
-// content beneath. The pan is attached to the ancestor view in didMoveToSuperview
-// (guaranteed non-nil there), so UIKit delivers touches to it via the ancestor
-// chain without blocking taps or context menus.
-final class SwipeRowView: UIView, UIGestureRecognizerDelegate {
-    var onChanged: ((CGFloat) -> Void)?
-    var onEnded: ((CGFloat) -> Void)?
-    var pan: UIPanGestureRecognizer?
-
-    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? { nil }
-
-    override func didMoveToSuperview() {
-        super.didMoveToSuperview()
-        guard let host = superview, pan == nil else { return }
-        let gesture = UIPanGestureRecognizer(target: self, action: #selector(panned(_:)))
-        gesture.delegate = self
-        gesture.cancelsTouchesInView = false
-        gesture.maximumNumberOfTouches = 1
-        host.addGestureRecognizer(gesture)
-        pan = gesture
-    }
-
-    @objc private func panned(_ gesture: UIPanGestureRecognizer) {
-        guard bounds.contains(gesture.location(in: self)) else { return }
-        let translation = gesture.translation(in: self)
-        // Only horizontal drags drive the reply affordance.
-        guard abs(translation.x) > abs(translation.y) * 1.5 else { return }
-        switch gesture.state {
-        case .began, .changed:
-            onChanged?(translation.x)
-        case .ended, .cancelled:
-            onEnded?(translation.x)
-        default:
-            break
-        }
-    }
-
-    func gestureRecognizer(_ gesture: UIGestureRecognizer,
-                           shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
-        true
-    }
-}
-
-struct SwipeReplyCatcher: UIViewRepresentable {
-    let onChanged: (CGFloat) -> Void
-    let onEnded: (CGFloat) -> Void
-
-    func makeUIView(context: Context) -> SwipeRowView { SwipeRowView() }
-
-    func updateUIView(_ uiView: SwipeRowView, context: Context) {
-        uiView.onChanged = onChanged
-        uiView.onEnded = onEnded
-    }
-}
-
 struct TGDoubleCheck: View {
     let color: Color
     var body: some View {
@@ -2702,17 +2645,22 @@ struct MessageRow: View {
                 .opacity(replyProgress)
                 .padding(.trailing, 10)
         }
-        .background {
-            SwipeReplyCatcher(
-                onChanged: { x in
-                    dragOffset = max(-replyThreshold - 20, min(0, x))
-                },
-                onEnded: { x in
-                    if x < -replyThreshold { onSwipeReply(message) }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 16, coordinateSpace: .local)
+                .onChanged { value in
+                    let w = value.translation.width
+                    let h = value.translation.height
+                    guard abs(w) > abs(h) * 1.5, w < 0 else { return }
+                    dragOffset = max(-replyThreshold - 20, min(0, w))
+                }
+                .onEnded { value in
+                    let w = value.translation.width
+                    let h = value.translation.height
+                    guard abs(w) > abs(h) * 1.5 else { return }
+                    if w < -replyThreshold { onSwipeReply(message) }
                     withAnimation(.timingCurve(0.380, 0.700, 0.125, 1.000, duration: 0.3)) { dragOffset = 0 }
                 }
-            )
-        }
+        )
         .contextMenu {
             Button { onQuote(message) } label: { Label("回复", systemImage: "arrowshape.turn.up.left") }
             if !message.text.isEmpty {
