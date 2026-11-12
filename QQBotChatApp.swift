@@ -1276,7 +1276,15 @@ final class ChatStore {
         }
         if let quote { body["message_reference"] = ["message_id": quote.id] }
         if let mediaFile, let mediaType {
-            guard let fileURL = mediaURL(named: mediaFile), let data = try? Data(contentsOf: fileURL) else { error = "媒体文件读取失败。"; return }
+            guard let fileURL = mediaURL(named: mediaFile), let data = try? Data(contentsOf: fileURL), !data.isEmpty else {
+                if let current = conversations.firstIndex(where: { $0.id == id }),
+                   let mi = conversations[current].messages.firstIndex(where: { $0.id == tempID }) {
+                    conversations[current].messages[mi].status = "failed"
+                    saveConversations()
+                }
+                error = "媒体文件读取失败，请重新选择文件后发送。"
+                return
+            }
             let type: Int
             let ext: String
             switch mediaType {
@@ -1397,8 +1405,20 @@ final class ChatStore {
         else if let file = message.audioFile { mediaType = "audio"; mediaFile = file }
         else if let file = message.fileLocal { mediaType = "file"; mediaFile = file }
         else { mediaType = nil; mediaFile = nil }
+        // Keep the failed message if retry prerequisites are no longer available.
+        guard !conversation.replyID.isEmpty else {
+            error = "请先从 QQ 给机器人发送一条消息，再重发。"
+            return
+        }
+        if let mediaFile {
+            guard let url = mediaURL(named: mediaFile),
+                  let data = try? Data(contentsOf: url), !data.isEmpty else {
+                error = "原媒体文件已不可用，请重新选择文件。原消息已保留。"
+                return
+            }
+        }
         deleteMessage(conversationID: conversationID, messageID: messageID)
-        await send(to: conversationID, text: message.text, mediaFile: mediaFile, mediaType: mediaType, quote: nil, displayName: message.fileName)
+        await send(to: conversationID, text: message.text, mediaFile: mediaFile, mediaType: mediaType, quote: nil, displayName: message.fileName, duration: message.duration)
     }
 
     func deleteMessage(conversationID: String, messageID: String) {
