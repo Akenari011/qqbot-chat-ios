@@ -2610,7 +2610,7 @@ struct MessageRow: View {
                             HStack(spacing: 3) {
                                 Text(message.date, format: .dateTime.hour().minute())
                                     .font(.system(size: 11))
-                                if message.fromBot { TGDoubleCheck(color: .white.opacity(0.9)) }
+                                if message.fromBot { statusIcon }
                             }
                             .foregroundStyle(.white)
                             .padding(.horizontal, 6).padding(.vertical, 2)
@@ -2824,7 +2824,7 @@ struct MessageRow: View {
                         Text(message.date, format: .dateTime.hour().minute())
                             .font(.system(size: 11))
                         if message.fromBot {
-                            TGDoubleCheck(color: .white.opacity(0.9))
+                            statusIcon
                         }
                     }
                     .foregroundStyle(message.fromBot ? Color.white.opacity(0.75) : Color.secondary)
@@ -2869,10 +2869,14 @@ struct MessageRow: View {
 
     @ViewBuilder
     private var statusIcon: some View {
-        if message.fromBot, let status = message.status {
-            Image(systemName: status == "sending" ? "clock" : (status == "failed" ? "exclamationmark.circle" : "checkmark"))
-                .font(.system(size: 9))
-                .foregroundStyle(status == "failed" ? Color.red : (message.fromBot ? Color.white.opacity(0.8) : Color.secondary))
+        if message.fromBot {
+            // QQ acknowledges API acceptance, but does not provide read receipts.
+            let status = message.status
+            let symbol = status == "sending" ? "clock" : (status == "failed" ? "exclamationmark.circle.fill" : (status == "sent" ? "checkmark" : "questionmark.circle"))
+            Image(systemName: symbol)
+                .font(.system(size: 11))
+                .foregroundStyle(status == "failed" ? Color.red : Color.white.opacity(0.9))
+                .accessibilityLabel(status == "sending" ? "发送中" : (status == "failed" ? "发送失败" : (status == "sent" ? "QQ 接口已确认发送，已读状态未知" : "发送状态未知")))
         }
     }
 
