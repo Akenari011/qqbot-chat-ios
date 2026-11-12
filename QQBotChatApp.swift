@@ -2430,7 +2430,8 @@ struct ComposerInput: View {
                 .glassEffect(.regular, in: Capsule())
 
                 Button {
-                    if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    // The visible stop control must stop recording even when a draft exists.
+                    if recording || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         onToggleRecording()
                     } else {
                         let value = text
@@ -2439,7 +2440,7 @@ struct ComposerInput: View {
                         onSend(value, quote)
                     }
                 } label: {
-                    let hasContent = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || quoting != nil
+                    let hasContent = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ZStack {
                         if store.sendingConversationID == conversationID {
                             ProgressView()
@@ -2464,7 +2465,7 @@ struct ComposerInput: View {
                     .animation(.easeInOut(duration: 0.2), value: hasContent)
                 }
                 .disabled(store.sendingConversationID != nil)
-                .accessibilityLabel("发送或录音")
+                .accessibilityLabel(recording ? "停止录音并发送语音" : (text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "开始录音" : "发送消息"))
             }
 
         }
