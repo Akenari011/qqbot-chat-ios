@@ -3259,8 +3259,22 @@ struct MessageRow: View {
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 4) {
-            if message.fromBot { Spacer(minLength: 3) } else { avatar }
+            if message.fromBot {
+                Spacer(minLength: 3)
+            } else if !mergedBottom {
+                avatar
+            } else {
+                // Keep every incoming bubble aligned; only the group tail owns the avatar.
+                Color.clear.frame(width: 34, height: 34)
+            }
             VStack(alignment: message.fromBot ? .trailing : .leading, spacing: 4) {
+                if !message.fromBot && !mergedTop && (message.isImage || message.isVideo || message.isAudio || message.isFile) {
+                    Text(message.authorName)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(blue)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
                 if message.quotedText != nil || message.quotedID != nil {
                     HStack(spacing: 6) {
                         RoundedRectangle(cornerRadius: 1.5).fill(blue.opacity(0.7)).frame(width: 3)
@@ -3479,6 +3493,8 @@ struct MessageRow: View {
                 if !message.fromBot && !mergedTop {
                     Text(message.authorName)
                         .font(.system(size: 14, weight: .semibold))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                         .foregroundStyle(Color(red: 0, green: 0x88 / 255, blue: 1.0))
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
