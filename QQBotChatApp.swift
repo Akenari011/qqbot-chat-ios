@@ -770,8 +770,13 @@ final class ChatStore {
         status = "连接断开，\(Int(delay)) 秒后重连"
         reconnectTask?.cancel()
         reconnectTask = Task {
-            try? await Task.sleep(for: .seconds(delay))
-            guard self.shouldRun, self.socket == nil else { return }
+            do {
+                try await Task.sleep(for: .seconds(delay))
+            } catch {
+                // A cancelled retry must never open another WebSocket.
+                return
+            }
+            guard !Task.isCancelled, self.shouldRun, self.socket == nil else { return }
             do {
                 try await self.openSocket(resume: self.sessionID != nil && self.sequence != nil)
             } catch {
