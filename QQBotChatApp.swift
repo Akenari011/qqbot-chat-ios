@@ -2526,7 +2526,9 @@ struct MessageRow: View {
     @State private var playingAudio = false
     @State private var loadedImage: UIImage?
     @State private var videoThumbnail: UIImage?
-    @State private var dragOffset: CGFloat = 0
+    // Reset after completion or cancellation, including interrupted scrolling.
+    @GestureState(resetTransaction: Transaction(animation: .easeOut(duration: 0.3)))
+    private var dragOffset: CGFloat = 0
     private let replyThreshold: CGFloat = 72
     // TG ChatMessageItemCommon.swift: width-36 (<=500pt) else width*0.85
     // Short messages should be a narrow bubble, not a full-width bar.
@@ -2647,18 +2649,19 @@ struct MessageRow: View {
         }
         .simultaneousGesture(
             DragGesture(minimumDistance: 16, coordinateSpace: .local)
-                .onChanged { value in
+                .updating($dragOffset) { value, offset, _ in
                     let w = value.translation.width
                     let h = value.translation.height
+                    // Direction changes must not leave the previous negative offset behind.
+                    offset = 0
                     guard abs(w) > abs(h) * 1.5, w < 0 else { return }
-                    dragOffset = max(-replyThreshold - 20, min(0, w))
+                    offset = max(-replyThreshold - 20, w)
                 }
                 .onEnded { value in
                     let w = value.translation.width
                     let h = value.translation.height
-                    guard abs(w) > abs(h) * 1.5 else { return }
-                    if w < -replyThreshold { onSwipeReply(message) }
-                    withAnimation(.timingCurve(0.380, 0.700, 0.125, 1.000, duration: 0.3)) { dragOffset = 0 }
+                    guard w < -replyThreshold, abs(w) > abs(h) * 1.5 else { return }
+                    onSwipeReply(message)
                 }
         )
         .contextMenu {
