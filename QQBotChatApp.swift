@@ -1250,7 +1250,8 @@ final class ChatStore {
 
     private func performSend(to id: String, text: String, mediaFile: String?, mediaType: String?, quote: ChatMessage?, displayName: String? = nil, duration: Double? = nil) async {
         guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
-        guard !conversations[index].replyID.isEmpty else { error = "请先从 QQ 给机器人发送一条消息，再回复。"; return }
+        // Channel sends do not require the passive-reply context used by C2C/group messages.
+        guard conversations[index].isChannel || !conversations[index].replyID.isEmpty else { error = "请先从 QQ 给机器人发送一条消息，再回复。"; return }
         sendingConversationID = id
         defer { sendingConversationID = nil }
         let conversation = conversations[index]
@@ -1406,7 +1407,7 @@ final class ChatStore {
         else if let file = message.fileLocal { mediaType = "file"; mediaFile = file }
         else { mediaType = nil; mediaFile = nil }
         // Keep the failed message if retry prerequisites are no longer available.
-        guard !conversation.replyID.isEmpty else {
+        guard conversation.isChannel || !conversation.replyID.isEmpty else {
             error = "请先从 QQ 给机器人发送一条消息，再重发。"
             return
         }
