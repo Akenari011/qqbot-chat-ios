@@ -2272,6 +2272,54 @@ struct ChatView: View {
     }
 }
 
+struct EmojiSelectionPanel: View {
+    @Binding var text: String
+    let emojis: [String]
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 12) {
+                Text(text.isEmpty ? "选择表情后插入消息" : text)
+                    .font(.system(size: 18))
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
+                    .accessibilityLabel("消息草稿预览")
+                ScrollView {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 48))], spacing: 12) {
+                        ForEach(emojis, id: \.self) { emoji in
+                            Button { text.append(contentsOf: emoji) } label: {
+                                Text(emoji).font(.system(size: 30))
+                                    .frame(maxWidth: .infinity, minHeight: 48)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("插入表情 " + emoji)
+                        }
+                    }
+                    .padding(16)
+                }
+            }
+            .padding(.top, 12)
+            .navigationTitle("选择表情")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { if !text.isEmpty { text.removeLast() } } label: {
+                        Image(systemName: "delete.left")
+                    }
+                    .disabled(text.isEmpty)
+                    .accessibilityLabel("删除最后一个字符")
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("完成") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
 struct ComposerInput: View {
     @Environment(\.colorScheme) private var colorScheme
     let store: ChatStore
@@ -2368,7 +2416,10 @@ struct ComposerInput: View {
                     .padding(EdgeInsets(top: 5, leading: 12, bottom: 4, trailing: 11))
                     .frame(minHeight: 40)
 
-                    Button { showEmoji.toggle() } label: {
+                    Button {
+                        isFocused = false
+                        showEmoji = true
+                    } label: {
                         Image(systemName: showEmoji ? "face.smiling.fill" : "face.smiling")
                             .font(.system(size: 20)).foregroundStyle(blue)
                             .frame(width: 36, height: 36)
@@ -2415,17 +2466,12 @@ struct ComposerInput: View {
                 .disabled(store.sendingConversationID != nil)
                 .accessibilityLabel("发送或录音")
             }
-            if showEmoji {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        ForEach(emojis, id: \.self) { emoji in
-                            Button { text += emoji } label: { Text(emoji).font(.system(size: 26)) }
-                        }
-                    }
-                    .padding(.horizontal, 12).padding(.vertical, 8)
-                }
-                .background(Color(uiColor: .secondarySystemBackground))
-            }
+
+        }
+        .sheet(isPresented: $showEmoji, onDismiss: { isFocused = true }) {
+            EmojiSelectionPanel(text: $text, emojis: emojis)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showMentions) {
             NavigationStack {
