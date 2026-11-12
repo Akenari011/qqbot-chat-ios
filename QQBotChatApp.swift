@@ -71,7 +71,8 @@ struct ChatMessage: Identifiable, Codable, Equatable {
         if isFile { return "[文件] " + (fileName ?? "") }
         return text
     }
-    var date: Date { ISO8601DateFormatter().date(from: timestamp) ?? .now }
+    private static let timestampParser = ISO8601DateFormatter()
+    var date: Date { Self.timestampParser.date(from: timestamp) ?? .now }
 }
 
 struct GuildInfo: Identifiable {
@@ -2173,12 +2174,27 @@ struct ChatView: View {
                     .task { await store.loadSchedules(channelID: conversationID) }
             }
         }
-        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.item], allowsMultipleSelection: false) { result in
-            guard case .success(let urls) = result, let url = urls.first else { return }
-            let access = url.startAccessingSecurityScopedResource()
-            defer { if access { url.stopAccessingSecurityScopedResource() } }
-            guard let data = try? Data(contentsOf: url) else { return }
-            Task { await store.sendFile(data, name: url.lastPathComponent, to: conversationID) }
+        .sheet(isPresented: $showFileImporter) {
+            ChatDocumentPicker { result in
+                showFileImporter = false
+                switch result {
+                case .success(let url):
+                    Task {
+                        do {
+                            let data = try await Task.detached(priority: .userInitiated) {
+                                let access = url.startAccessingSecurityScopedResource()
+                                defer { if access { url.stopAccessingSecurityScopedResource() } }
+                                let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+                                guard size <= 20 * 1024 * 1024 else { throw CocoaError(.fileReadTooLarge) }
+                                return try Data(contentsOf: url)
+                            }.value
+                            await store.sendFile(data, name: url.lastPathComponent, to: conversationID)
+                        } catch { store.error = "文件读取失败，请确认已下载到本机且不超过 20MB。" }
+                    }
+                case .failure:
+                    store.error = "无法选择此文件，请重试。"
+                }
+            }
         }
         .onChange(of: videoItem) { _, item in
             guard let item else { return }
@@ -2329,7 +2345,10 @@ struct ChatView: View {
                     withAnimation(TGAnim.scrollToBottom) { proxy.scrollTo("chatBottom", anchor: .bottom) }
                 }
                 .onChange(of: scrollTick) { _, _ in
-                    withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo("chatBottom", anchor: .bottom) }
+                    // The keyboard already animates layout; avoid a competing scroll animation.
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) { proxy.scrollTo("chatBottom", anchor: .bottom) }
                 }
                 .onAppear {
                     // Layout pass must finish before any programmatic scroll; otherwise
@@ -2355,6 +2374,7 @@ struct ChatView: View {
                 showFileImporter: $showFileImporter,
                 recording: $recording,
                 onToggleRecording: { toggleRecording() },
+                onCancelRecording: { cancelRecording() },
                 onSend: { text, quote in
                     quoting = nil
                     store.drafts[conversationID] = ""
@@ -2888,6 +2908,7 @@ struct ComposerInput: View {
     @Binding var showFileImporter: Bool
     @Binding var recording: Bool
     let onToggleRecording: () -> Void
+    let onCancelRecording: () -> Void
     let onSend: (String, ChatMessage?) -> Void
     let onFocus: () -> Void
     let onCancelQuote: () -> Void
@@ -2916,6 +2937,15 @@ struct ComposerInput: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if recording {
+                HStack {
+                    Label("正在录音", systemImage: "waveform").foregroundStyle(.red)
+                    Spacer()
+                    Button("取消录音", role: .destructive, action: onCancelRecording)
+                }
+                .font(.system(size: 14))
+                .padding(.horizontal, 12).padding(.vertical, 8)
+            }
             if let quoting {
                 HStack(alignment: .top, spacing: 0) {
                     RoundedRectangle(cornerRadius: 1).fill(blue)
@@ -3077,6 +3107,25 @@ struct ComposerInput: View {
         }
         .photosPicker(isPresented: $showPhotoPicker, selection: $pickerItems, maxSelectionCount: 9, matching: .images)
         .photosPicker(isPresented: $showVideoPicker, selection: $videoItem, matching: .videos)
+    }
+}
+
+struct ChatDocumentPicker: UIViewControllerRepresentable {
+    let onResult: (Result<URL, Error>) -> Void
+    func makeCoordinator() -> Coordinator { Coordinator(onResult: onResult) }
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.data, .content], asCopy: true)
+        picker.allowsMultipleSelection = false
+        picker.delegate = context.coordinator
+        return picker
+    }
+    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let onResult: (Result<URL, Error>) -> Void
+        init(onResult: @escaping (Result<URL, Error>) -> Void) { self.onResult = onResult }
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            if let url = urls.first { onResult(.success(url)) }
+        }
     }
 }
 
@@ -3443,7 +3492,9 @@ struct MessageRow: View {
             guard let name = message.localImage, loadedImage == nil else { return }
             let path = store.mediaURL(named: name)?.path
             let image = await Task.detached(priority: .userInitiated) {
-                path.flatMap { UIImage(contentsOfFile: $0) }
+                guard let path, let source = UIImage(contentsOfFile: path) else { return nil as UIImage? }
+                // Decode a display-sized image off the main thread before it enters the list.
+                return source.preparingThumbnail(of: CGSize(width: 660, height: 840)) ?? source
             }.value
             loadedImage = image
         }
@@ -3519,12 +3570,12 @@ struct MessageRow: View {
                     }
                 }
                 .padding(.top, 15).padding(.leading, 9).padding(.bottom, 15).padding(.trailing, 12)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 16))
+                .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
             }
         } else if message.imageURL != nil || message.videoURL != nil || message.audioURL != nil {
             Button { store.retryMedia(messageID: message.id, conversationID: conversationID) } label: {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 15).fill(Color.white)
+                    RoundedRectangle(cornerRadius: 15).fill(Color(uiColor: .secondarySystemBackground))
                     VStack(spacing: 6) {
                         Image(systemName: message.isVideo ? "play.circle" : (message.isAudio ? "waveform" : "photo"))
                             .font(.system(size: 28)).foregroundStyle(.secondary)
@@ -3571,7 +3622,7 @@ struct MessageRow: View {
                         mergedBottom: mergedBottom
                     )
                 )
-                .fill(message.fromBot ? AnyShapeStyle(tgOutgoingFill()) : AnyShapeStyle(Color.white))
+                .fill(message.fromBot ? AnyShapeStyle(tgOutgoingFill()) : AnyShapeStyle(Color(uiColor: .secondarySystemBackground)))
             )
             if let reactions = message.reactions, !reactions.isEmpty {
                 HStack(spacing: 4) {
