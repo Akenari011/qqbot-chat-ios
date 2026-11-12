@@ -3274,8 +3274,7 @@ struct ForwardedTranscript {
             .filter { $0.hasPrefix("[消息内容]") }
             .prefix(3)
             .map { String($0.dropFirst("[消息内容]".count)).trimmingCharacters(in: .whitespaces) }
-            .joined(separator: "
-")
+            .joined(separator: "\n")
     }
 }
 
