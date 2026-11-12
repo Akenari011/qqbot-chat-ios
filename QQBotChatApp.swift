@@ -186,6 +186,7 @@ final class ChatStore {
     private var sendChain: Task<Void, Never>?
     private var networkMonitor: NWPathMonitor?
 
+    var memberAvatars: [String: String] = UserDefaults.standard.dictionary(forKey: "memberAvatars") as? [String: String] ?? [:]
     var stickers: [String] = []
     private var stickersURL: URL { documents.appendingPathComponent("stickers", isDirectory: true) }
     private var stickerIndexURL: URL { stickersURL.appendingPathComponent("index.json") }
@@ -997,7 +998,9 @@ final class ChatStore {
         )
         let scene = isChannel ? "channel" : (isGroup ? "group" : "c2c")
         let name = isChannel ? "频道 " + String(target.suffix(6)) : (isGroup ? "群聊 " + String(target.suffix(6)) : "QQ 用户")
-        append(message, target: target, scene: scene, name: name, markUnread: activeConversationID != target, replyID: nil)
+        // Interaction callbacks are events, not a second incoming chat message.
+        // Actual command messages arrive separately through MESSAGE_CREATE.
+        log("收到按钮交互事件")
     }
 
     private func append(_ message: ChatMessage, target: String, scene: String, name: String, markUnread: Bool, replyID: String?) {
@@ -1303,6 +1306,19 @@ final class ChatStore {
         guard data.count <= 10 * 1024 * 1024 else { error = "语音文件过大。"; return }
         guard let name = saveMedia(data, ext: "m4a") else { error = "语音保存失败。"; return }
         await send(to: id, text: "", mediaFile: name, mediaType: "audio", quote: quote, duration: duration)
+    }
+
+    func memberAvatarKey(_ conversationID: String, _ authorID: String) -> String {
+        conversationID + ":" + authorID
+    }
+    func setMemberAvatar(conversationID: String, authorID: String, data: Data?) {
+        let key = memberAvatarKey(conversationID, authorID)
+        if let data {
+            guard let image = UIImage(data: data), let jpeg = image.scaled(maxDimension: 200).jpegData(compressionQuality: 0.85),
+                  let name = saveMedia(jpeg, ext: "jpg") else { error = "成员头像保存失败。"; return }
+            memberAvatars[key] = name
+        } else { memberAvatars.removeValue(forKey: key) }
+        UserDefaults.standard.set(memberAvatars, forKey: "memberAvatars")
     }
 
     func savePhotoToLibrary(_ image: UIImage) {
@@ -1849,6 +1865,9 @@ struct ChatView: View {
     @State private var focusComposerTick = 0
     @State private var remarkDraft = ""
     @State private var avatarPickerItem: PhotosPickerItem?
+    @State private var avatarDraft: Data?
+    @State private var resetAvatarDraft = false
+    @State private var confirmClearChat = false
     @State private var scrollTick = 0
     @State private var renderLimit = 100
     @State private var showScrollButton = false
@@ -2031,7 +2050,7 @@ struct ChatView: View {
                         Button { keyboardText = ""; showKeyboardAlert = true } label: { Label("发送按钮消息", systemImage: "keyboard") }
                         Button { Task { await store.fetchHistory(conversationID: conversationID) } } label: { Label("拉取历史消息", systemImage: "clock.arrow.circlepath") }
                     }
-                    Button(role: .destructive) { store.clearConversation(conversationID) } label: { Label("清空聊天", systemImage: "trash") }
+                    Button(role: .destructive) { confirmClearChat = true } label: { Label("清空聊天", systemImage: "trash") }
                 } label: { Image(systemName: "ellipsis.circle") }
                 .accessibilityLabel("更多")
             }
@@ -2076,7 +2095,7 @@ struct ChatView: View {
                     store.saveVideoToLibrary(url)
                 }
             }
-            if store.conversation(conversationID)?.scene == "channel" {
+            if store.conversation(conversationID)?.scene == "channel" && message.status != "sending" && message.status != "failed" && !message.id.hasPrefix("interaction-") {
                 if message.fromBot {
                     Button("编辑") { editingMessage = message; editText = message.text }
                 }
@@ -2098,6 +2117,10 @@ struct ChatView: View {
             Button("删除", role: .destructive) { store.deleteMessage(conversationID: conversationID, messageID: message.id) }
             Button("取消", role: .cancel) { menuMessage = nil }
         }
+        .confirmationDialog("清空本机聊天记录？", isPresented: $confirmClearChat, titleVisibility: .visible) {
+            Button("清空聊天", role: .destructive) { store.clearConversation(conversationID) }
+            Button("取消", role: .cancel) {}
+        } message: { Text("仅清空本机记录，不会撤回 QQ 中的消息。") }
         .sheet(isPresented: $showProfileEditor) {
             NavigationStack {
                 Form {
@@ -2114,7 +2137,8 @@ struct ChatView: View {
                         }
                         if let conv = conversation, conv.avatarPath != nil {
                             Button("恢复默认头像", role: .destructive) {
-                                store.clearConversationAvatar(conversationID)
+                                avatarDraft = nil
+                                resetAvatarDraft = true
                             }
                         }
                         Text("QQ 群消息事件不提供群头像，头像来自事件中的用户 avatar 字段或手动设置。")
@@ -2130,16 +2154,23 @@ struct ChatView: View {
                     ToolbarItem(placement: .navigationBarTrailing) {
                         Button("保存") {
                             store.setRemark(conversationID, remarkDraft)
+                            if let avatarDraft { store.setConversationAvatar(conversationID, data: avatarDraft) }
+                            else if resetAvatarDraft { store.clearConversationAvatar(conversationID) }
                             showProfileEditor = false
                         }
                     }
                 }
-                .onAppear { remarkDraft = conversation?.remark ?? "" }
+                .onAppear {
+                    remarkDraft = conversation?.remark ?? ""
+                    avatarDraft = nil
+                    resetAvatarDraft = false
+                }
                 .onChange(of: avatarPickerItem) { _, item in
                     guard let item else { return }
                     Task {
                         if let data = try? await item.loadTransferable(type: Data.self) {
-                            store.setConversationAvatar(conversationID, data: data)
+                            avatarDraft = data
+                            resetAvatarDraft = false
                         }
                         avatarPickerItem = nil
                     }
@@ -2217,7 +2248,20 @@ struct ChatView: View {
         }
         .sheet(isPresented: $showPins) {
             NavigationStack {
-                List(store.pins, id: \.self) { id in Text(id).font(.system(size: 12)).lineLimit(1) }
+                List(store.pins, id: \.self) { id in
+                    Button {
+                        guard let position = conversation?.messages.firstIndex(where: { $0.id == id }), let total = conversation?.messages.count else {
+                            store.error = "该置顶消息尚未缓存到本机，请在 QQ 中查看或拉取频道历史。"
+                            return
+                        }
+                        renderLimit = max(renderLimit, total - position)
+                        showPins = false
+                        jumpTarget = id
+                    } label: {
+                        Text(conversation?.messages.first(where: { $0.id == id })?.summary ?? "未缓存的置顶消息（点击查看说明）")
+                            .font(.system(size: 14)).lineLimit(2)
+                    }
+                }
                     .navigationTitle("置顶消息")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("完成") { showPins = false } } }
@@ -3144,13 +3188,18 @@ struct ComposerInput: View {
         }
         .sheet(isPresented: $showMentions) {
             NavigationStack {
-                List(mentionMembers, id: \.0) { member in
+                List {
+                    Section { Text("成员来自本机收到的消息。插入 @姓名不会保证触发 QQ 提醒。")
+                        .font(.footnote).foregroundStyle(.secondary) }
+                    ForEach(mentionMembers, id: \.0) { member in
                     Button("@" + member.1) {
-                        text += store.mentionSyntax ? "<@" + member.0 + "> " : "@" + member.1 + " "
+                        // Group OpenID is not a channel user ID; never emit unsupported channel mention tags.
+                        text += "@" + member.1 + " "
                         showMentions = false
                     }
                 }
-                .navigationTitle("提及成员")
+                }
+                .navigationTitle("插入成员姓名")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("完成") { showMentions = false } } }
             }
@@ -3549,6 +3598,8 @@ struct MessageRow: View {
     @State private var playingAudio = false
     @State private var loadedImage: UIImage?
     @State private var videoThumbnail: UIImage?
+    @State private var showMemberAvatarPicker = false
+    @State private var memberAvatarItem: PhotosPickerItem?
     // Reset after completion or cancellation, including interrupted scrolling.
     @GestureState(resetTransaction: Transaction(animation: .easeOut(duration: 0.3)))
     private var dragOffset: CGFloat = 0
@@ -3589,7 +3640,9 @@ struct MessageRow: View {
 
     private var avatar: some View {
         Group {
-            if let urlString = message.authorAvatarURL, let url = URL(string: urlString) {
+            if let authorID = message.authorID, let name = store.memberAvatars[store.memberAvatarKey(conversationID, authorID)], let image = store.image(named: name) {
+                Image(uiImage: image).resizable().scaledToFill()
+            } else if let urlString = message.authorAvatarURL, let url = URL(string: urlString) {
                 AsyncImage(url: url) { phase in
                     switch phase {
                     case let .success(image):
@@ -3658,6 +3711,7 @@ struct MessageRow: View {
                     }
                 if let buttons = message.buttons, !buttons.isEmpty {
                     VStack(spacing: 6) {
+                        Text("按钮预览 · 请在 QQ 中操作").font(.caption).foregroundStyle(.secondary)
                         ForEach(buttons, id: \.self) { label in
                             Text(label)
                                 .font(.system(size: 13, weight: .medium))
@@ -3702,7 +3756,23 @@ struct MessageRow: View {
                     onSwipeReply(message)
                 }
         )
+        .photosPicker(isPresented: $showMemberAvatarPicker, selection: $memberAvatarItem, matching: .images)
+        .onChange(of: memberAvatarItem) { _, item in
+            guard let item, let authorID = message.authorID else { return }
+            Task {
+                if let data = try? await item.loadTransferable(type: Data.self) {
+                    store.setMemberAvatar(conversationID: conversationID, authorID: authorID, data: data)
+                } else { store.error = "成员头像读取失败。" }
+                memberAvatarItem = nil
+            }
+        }
         .contextMenu {
+            if !message.fromBot, let authorID = message.authorID, !authorID.isEmpty {
+                Button { showMemberAvatarPicker = true } label: { Label("设置成员头像", systemImage: "person.crop.circle") }
+                if store.memberAvatars[store.memberAvatarKey(conversationID, authorID)] != nil {
+                    Button("恢复成员默认头像") { store.setMemberAvatar(conversationID: conversationID, authorID: authorID, data: nil) }
+                }
+            }
             Button { onQuote(message) } label: { Label("回复", systemImage: "arrowshape.turn.up.left") }
             if !message.text.isEmpty {
                 Button { UIPasteboard.general.string = message.text } label: { Label("复制", systemImage: "doc.on.doc") }
@@ -3724,7 +3794,7 @@ struct MessageRow: View {
                     Task { await store.recallMessage(conversationID: conversationID, messageID: message.id) }
                 } label: { Label("撤回（2 分钟内）", systemImage: "arrow.uturn.backward") }
             }
-            if store.conversation(conversationID)?.scene == "channel" {
+            if store.conversation(conversationID)?.scene == "channel" && message.status != "sending" && message.status != "failed" && !message.id.hasPrefix("interaction-") {
                 Menu("频道操作") {
                     if message.fromBot {
                         Button { onEdit(message) } label: { Label("编辑", systemImage: "pencil") }
@@ -3878,7 +3948,7 @@ struct MessageRow: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 ZStack(alignment: .bottomTrailing) {
-                    Text(markdownText(message.text.isEmpty ? "[空消息]" : message.text))
+                    Text(markdownText(message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "[空白或暂不支持的消息]" : message.text))
                         .font(.system(size: 17 * store.fontScale))
                         .foregroundStyle(message.fromBot ? Color.white : Color.primary)
                         .frame(maxWidth: textBubbleWidth - 22, alignment: .leading)
@@ -4085,7 +4155,8 @@ struct SettingsView: View {
                         Text("绿色").tag("green")
                         Text("蓝色").tag("blue")
                     }
-                    Toggle("实验性 @ 标记（QQ 群不解析，默认关闭）", isOn: Binding(get: { store.mentionSyntax }, set: { store.mentionSyntax = $0 }))
+                    Text("群内 @ 当前仅插入成员姓名，官方公开接口未确认支持提醒成员；可使用引用回复关联消息。")
+                        .font(.footnote).foregroundStyle(.secondary)
                     PhotosPicker(selection: $bgItem, matching: .images, photoLibrary: .shared()) {
                         Text("选择聊天背景图")
                     }
