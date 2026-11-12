@@ -183,6 +183,10 @@ final class ChatStore {
     private var sendChain: Task<Void, Never>?
     private var networkMonitor: NWPathMonitor?
 
+    var stickers: [String] = []
+    private var stickersURL: URL { documents.appendingPathComponent("stickers", isDirectory: true) }
+    private var stickerIndexURL: URL { stickersURL.appendingPathComponent("index.json") }
+
     private let imageCache = NSCache<NSString, UIImage>()
     private let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
     private var stateURL: URL { documents.appendingPathComponent("conversations.json") }
@@ -194,6 +198,11 @@ final class ChatStore {
             password = pair.password
         }
         loadConversations()
+        try? FileManager.default.createDirectory(at: stickersURL, withIntermediateDirectories: true)
+        if let data = try? Data(contentsOf: stickerIndexURL),
+           let names = try? JSONDecoder().decode([String].self, from: data) {
+            stickers = names.filter { $0 == ($0 as NSString).lastPathComponent && FileManager.default.fileExists(atPath: stickersURL.appendingPathComponent($0).path) }
+        }
         try? FileManager.default.createDirectory(at: imagesURL, withIntermediateDirectories: true)
     }
 
@@ -814,7 +823,7 @@ final class ChatStore {
             let ns = result as NSString
             for match in faceRegex.matches(in: result, range: NSRange(location: 0, length: ns.length)).reversed() {
                 let idString = ns.substring(with: match.range(at: 1))
-                let emoji = faceMap[Int(idString) ?? -1] ?? "🙂"
+                let emoji = faceMap[Int(idString) ?? -1] ?? "[QQ表情 " + idString + "]"
                 result = result.replacingOccurrences(of: ns.substring(with: match.range), with: emoji)
             }
         }
@@ -1215,6 +1224,49 @@ final class ChatStore {
         await send(to: id, text: trimmed, mediaFile: nil, mediaType: nil, quote: quote)
     }
 
+    func addSticker(_ data: Data) -> String? {
+        guard !data.isEmpty, data.count <= 10 * 1024 * 1024, let image = UIImage(data: data) else {
+            return "无法添加：请选择 10MB 以内的图片或 GIF。"
+        }
+        let isGIF = data.starts(with: Data("GIF8".utf8))
+        guard let payload = isGIF ? data : image.scaled(maxDimension: 1024).pngData() else { return "图片处理失败。" }
+        let name = UUID().uuidString + (isGIF ? ".gif" : ".png")
+        do {
+            try FileManager.default.createDirectory(at: stickersURL, withIntermediateDirectories: true)
+            try payload.write(to: stickersURL.appendingPathComponent(name), options: .atomic)
+            let updated = stickers + [name]
+            try JSONEncoder().encode(updated).write(to: stickerIndexURL, options: .atomic)
+            stickers = updated
+            return nil
+        } catch { return "表情包保存失败，请重试。" }
+    }
+
+    func stickerImage(_ name: String) -> UIImage? {
+        guard stickers.contains(name) else { return nil }
+        return UIImage(contentsOfFile: stickersURL.appendingPathComponent(name).path)
+    }
+
+    func removeSticker(_ name: String) -> String? {
+        let updated = stickers.filter { $0 != name }
+        do {
+            try JSONEncoder().encode(updated).write(to: stickerIndexURL, options: .atomic)
+            stickers = updated
+            try? FileManager.default.removeItem(at: stickersURL.appendingPathComponent(name))
+            return nil
+        } catch { return "删除表情包失败，请重试。" }
+    }
+
+    func sendSticker(_ name: String, to id: String, quote: ChatMessage?) async {
+        guard stickers.contains(name),
+              let data = try? Data(contentsOf: stickersURL.appendingPathComponent(name)), !data.isEmpty,
+              let copy = saveMedia(data, ext: (name as NSString).pathExtension) else {
+            error = "表情包已不可用，请重新添加。"
+            return
+        }
+        // Copy into message storage: removing a favorite must not break sent messages.
+        await send(to: id, text: "", mediaFile: copy, mediaType: "image", quote: quote)
+    }
+
     func sendImage(_ data: Data, to id: String, quote: ChatMessage? = nil) async {
         guard let image = UIImage(data: data) else { error = "无法读取所选图片。"; return }
         let resized = image.scaled(maxDimension: 1600)
@@ -1295,7 +1347,7 @@ final class ChatStore {
             case "video": type = 2; ext = "mp4"
             case "audio": type = 3; ext = "m4a"
             case "file": type = 4; ext = (displayName as NSString?)?.pathExtension ?? "bin"
-            default: type = 1; ext = "jpg"
+            default: type = 1; ext = (mediaFile as NSString).pathExtension.isEmpty ? "jpg" : (mediaFile as NSString).pathExtension
             }
             let uploadName = mediaType == "file" ? (displayName ?? "file.bin") : "media." + ext
             do {
@@ -2272,14 +2324,80 @@ struct ChatView: View {
     }
 }
 
+struct StickerLibraryPanel: View {
+    let store: ChatStore
+    let onSelect: (String) -> Void
+    @State private var items: [PhotosPickerItem] = []
+    @State private var importing = false
+    @State private var notice = ""
+    var body: some View {
+        VStack {
+            PhotosPicker(selection: $items, maxSelectionCount: 20, matching: .images) {
+                Label(importing ? "正在添加…" : "从相册添加表情包", systemImage: "plus.circle")
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }.disabled(importing)
+            if !notice.isEmpty { Text(notice).font(.footnote).foregroundStyle(.secondary) }
+            if store.stickers.isEmpty {
+                ContentUnavailableView("还没有表情包", systemImage: "photo.on.rectangle", description: Text("添加图片或 GIF 后点选发送。收藏仅保存在本机。"))
+            } else {
+                ScrollView {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 80))], spacing: 12) {
+                        ForEach(store.stickers, id: \.self) { name in
+                            Button { onSelect(name) } label: {
+                                if let image = store.stickerImage(name) {
+                                    Image(uiImage: image).resizable().scaledToFit()
+                                        .frame(height: 80).frame(maxWidth: .infinity)
+                                }
+                            }.buttonStyle(.plain)
+                            .accessibilityLabel("发送收藏表情包")
+                            .contextMenu {
+                                Button("删除收藏", role: .destructive) { notice = store.removeSticker(name) ?? "已删除收藏" }
+                            }
+                        }
+                    }.padding(12)
+                }
+            }
+        }.padding(.horizontal, 12)
+        .onChange(of: items) { _, selected in
+            guard !selected.isEmpty, !importing else { return }
+            importing = true
+            Task {
+                var failures = 0
+                for item in selected {
+                    do {
+                        guard let data = try await item.loadTransferable(type: Data.self) else { failures += 1; continue }
+                        if store.addSticker(data) != nil { failures += 1 }
+                    } catch { failures += 1 }
+                }
+                notice = failures == 0 ? "已添加，点选发送；长按可删除收藏。" : "部分图片添加失败，请选择 10MB 以内的图片或 GIF。"
+                items = []
+                importing = false
+            }
+        }
+    }
+}
+
 struct EmojiSelectionPanel: View {
     @Binding var text: String
     let emojis: [String]
+    let store: ChatStore
+    let onSticker: (String) -> Void
+    @State private var selectedTab = 0
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 12) {
+                Picker("表情类型", selection: $selectedTab) {
+                    Text("表情").tag(0)
+                    Text("表情包").tag(1)
+                }.pickerStyle(.segmented).padding(.horizontal, 16)
+                if selectedTab == 1 {
+                    StickerLibraryPanel(store: store) { name in
+                        onSticker(name)
+                        dismiss()
+                    }
+                } else {
                 Text(text.isEmpty ? "选择表情后插入消息" : text)
                     .font(.system(size: 18))
                     .lineLimit(2)
@@ -2300,9 +2418,10 @@ struct EmojiSelectionPanel: View {
                     }
                     .padding(16)
                 }
+                }
             }
             .padding(.top, 12)
-            .navigationTitle("选择表情")
+            .navigationTitle("表情与表情包")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -2470,7 +2589,11 @@ struct ComposerInput: View {
 
         }
         .sheet(isPresented: $showEmoji, onDismiss: { isFocused = true }) {
-            EmojiSelectionPanel(text: $text, emojis: emojis)
+            EmojiSelectionPanel(text: $text, emojis: emojis, store: store) { name in
+                let quote = quoting
+                onCancelQuote()
+                Task { await store.sendSticker(name, to: conversationID, quote: quote) }
+            }
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
