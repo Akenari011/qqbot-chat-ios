@@ -2981,7 +2981,8 @@ struct ComposerInput: View {
         .sheet(isPresented: $showEmoji, onDismiss: { isFocused = true }) {
             EmojiSelectionPanel(text: $text, emojis: emojis, store: store, onSticker: { name in
                 let quote = quoting
-                onCancelQuote()
+                // Keep the quote until explicitly cancelled or consumed by a text send.
+                // Selecting a sticker does not guarantee the queued API request will succeed.
                 Task { await store.sendSticker(name, to: conversationID, quote: quote) }
             }, conversationID: conversationID, onQQFace: { face in
                 let quote = quoting
