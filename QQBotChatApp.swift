@@ -2122,60 +2122,7 @@ struct ChatView: View {
             Button("取消", role: .cancel) {}
         } message: { Text("仅清空本机记录，不会撤回 QQ 中的消息。") }
         .sheet(isPresented: $showProfileEditor) {
-            NavigationStack {
-                Form {
-                    Section("备注名称") {
-                        TextField("留空则使用默认名称", text: $remarkDraft)
-                        if let conv = conversation {
-                            Text("默认名称：\(conv.name)")
-                                .font(.system(size: 12)).foregroundStyle(.secondary)
-                        }
-                    }
-                    Section("头像") {
-                        PhotosPicker(selection: $avatarPickerItem, matching: .images, photoLibrary: .shared()) {
-                            Text("选择头像图片")
-                        }
-                        if let conv = conversation, conv.avatarPath != nil {
-                            Button("恢复默认头像", role: .destructive) {
-                                avatarDraft = nil
-                                resetAvatarDraft = true
-                            }
-                        }
-                        Text("QQ 群消息事件不提供群头像，头像来自事件中的用户 avatar 字段或手动设置。")
-                            .font(.system(size: 12)).foregroundStyle(.secondary)
-                    }
-                }
-                .navigationTitle("会话资料")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .navigationBarLeading) {
-                        Button("取消") { showProfileEditor = false }
-                    }
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button("保存") {
-                            store.setRemark(conversationID, remarkDraft)
-                            if let avatarDraft { store.setConversationAvatar(conversationID, data: avatarDraft) }
-                            else if resetAvatarDraft { store.clearConversationAvatar(conversationID) }
-                            showProfileEditor = false
-                        }
-                    }
-                }
-                .onAppear {
-                    remarkDraft = conversation?.remark ?? ""
-                    avatarDraft = nil
-                    resetAvatarDraft = false
-                }
-                .onChange(of: avatarPickerItem) { _, item in
-                    guard let item else { return }
-                    Task {
-                        if let data = try? await item.loadTransferable(type: Data.self) {
-                            avatarDraft = data
-                            resetAvatarDraft = false
-                        }
-                        avatarPickerItem = nil
-                    }
-                }
-            }
+            profileEditorContent
         }
         .sheet(isPresented: $showForwardPicker) {
             NavigationStack {
@@ -2307,6 +2254,63 @@ struct ChatView: View {
                 videoItem = nil
             }
         }
+    }
+
+    private var profileEditorContent: some View {
+            NavigationStack {
+                Form {
+                    Section("备注名称") {
+                        TextField("留空则使用默认名称", text: $remarkDraft)
+                        if let conv = conversation {
+                            Text("默认名称：\(conv.name)")
+                                .font(.system(size: 12)).foregroundStyle(.secondary)
+                        }
+                    }
+                    Section("头像") {
+                        PhotosPicker(selection: $avatarPickerItem, matching: .images, photoLibrary: .shared()) {
+                            Text("选择头像图片")
+                        }
+                        if let conv = conversation, conv.avatarPath != nil {
+                            Button("恢复默认头像", role: .destructive) {
+                                avatarDraft = nil
+                                resetAvatarDraft = true
+                            }
+                        }
+                        Text("QQ 群消息事件不提供群头像，头像来自事件中的用户 avatar 字段或手动设置。")
+                            .font(.system(size: 12)).foregroundStyle(.secondary)
+                    }
+                }
+                .navigationTitle("会话资料")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarLeading) {
+                        Button("取消") { showProfileEditor = false }
+                    }
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button("保存") {
+                            store.setRemark(conversationID, remarkDraft)
+                            if let avatarDraft { store.setConversationAvatar(conversationID, data: avatarDraft) }
+                            else if resetAvatarDraft { store.clearConversationAvatar(conversationID) }
+                            showProfileEditor = false
+                        }
+                    }
+                }
+                .onAppear {
+                    remarkDraft = conversation?.remark ?? ""
+                    avatarDraft = nil
+                    resetAvatarDraft = false
+                }
+                .onChange(of: avatarPickerItem) { _, item in
+                    guard let item else { return }
+                    Task {
+                        if let data = try? await item.loadTransferable(type: Data.self) {
+                            avatarDraft = data
+                            resetAvatarDraft = false
+                        }
+                        avatarPickerItem = nil
+                    }
+                }
+            }
     }
 
     private func toggleRecording() {
