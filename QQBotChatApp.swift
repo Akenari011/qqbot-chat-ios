@@ -1976,7 +1976,7 @@ struct ChatView: View {
         }
         .onDisappear {
             store.activeConversationID = nil
-            if recording { recorder?.stop(); recorder = nil; recording = false }
+            cancelRecording()
         }
         .onChange(of: pickerItems) { _, items in
             guard !items.isEmpty else { return }
@@ -2199,24 +2199,57 @@ struct ChatView: View {
             try AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
             try AVAudioSession.sharedInstance().setActive(true)
             let r = try AVAudioRecorder(url: url, settings: settings)
-            r.record()
+            guard r.record() else {
+                r.stop()
+                try? FileManager.default.removeItem(at: url)
+                try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+                store.error = "录音未能启动，请检查麦克风权限或音频设备。"
+                return
+            }
             recorder = r
             recording = true
             recordingStarted = Date()
         } catch {
+            try? FileManager.default.removeItem(at: url)
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
             store.error = "无法开始录音，请检查麦克风权限。"
         }
     }
 
+    private func cancelRecording() {
+        guard let r = recorder else {
+            recording = false
+            recordingStarted = nil
+            return
+        }
+        r.stop()
+        recorder = nil
+        recording = false
+        recordingStarted = nil
+        try? FileManager.default.removeItem(at: r.url)
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
     private func stopRecording() {
-        guard let r = recorder else { return }
+        guard let r = recorder else {
+            recording = false
+            recordingStarted = nil
+            return
+        }
         r.stop()
         recorder = nil
         recording = false
         let url = r.url
         let duration = recordingStarted.map { Date().timeIntervalSince($0) }
         recordingStarted = nil
-        guard let data = try? Data(contentsOf: url), !data.isEmpty else { return }
+        defer {
+            try? FileManager.default.removeItem(at: url)
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        }
+        guard let data = try? Data(contentsOf: url), !data.isEmpty else {
+            store.error = "录音文件为空或无法读取，请重新录制。"
+            return
+        }
         Task { await store.sendAudio(data, to: conversationID, duration: duration) }
     }
 
