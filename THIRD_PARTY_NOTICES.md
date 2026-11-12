@@ -7,6 +7,12 @@
 本仓库中的原创代码（`QQBotChatApp.swift`、`QQBotChat.xcodeproj`、GitHub Actions 工作流、
 `server/` 下的自研网关与测试、文档、图标资源）采用 **MIT License**，见 [LICENSE](</LICENSE>)。
 
+## QQ 表情目录与在线图片
+
+QQ 表情 ID、名称和资源路径来自 [Koishi QFace](https://koishi.js.org/QFace/) 的 [v2 索引](https://koishi.js.org/QFace/assets/qq_emoji/_index.v2.json)，快照时间 2026-11-12；当前筛选 336 项带 PNG 资源且未标记 removed 的条目，不保证官方线上全量。图片在线加载，不随应用打包。
+
+[QFace 来源说明](https://github.com/koishijs/QFace) 明确：表情资源版权归腾讯，仅供学习交流、请勿商用；仓库代码的 MIT 许可不等于腾讯图片授权。本项目不主张这些图片的版权，也不授予额外使用权。
+
 ## 界面设计参考
 
 本项目的界面布局、交互与部分尺寸常量参考了

@@ -823,7 +823,7 @@ final class ChatStore {
             let ns = result as NSString
             for match in faceRegex.matches(in: result, range: NSRange(location: 0, length: ns.length)).reversed() {
                 let idString = ns.substring(with: match.range(at: 1))
-                let emoji = faceMap[Int(idString) ?? -1] ?? "[QQ表情 " + idString + "]"
+                let emoji = QQFaceCatalog.label(Int(idString) ?? -1)
                 result = result.replacingOccurrences(of: ns.substring(with: match.range), with: emoji)
             }
         }
@@ -2324,6 +2324,388 @@ struct ChatView: View {
     }
 }
 
+struct QQFaceEntry: Identifiable {
+    let id: Int
+    let name: String
+    let url: String
+}
+
+enum QQFaceCatalog {
+    // Source: https://koishi.js.org/QFace/assets/qq_emoji/_index.v2.json
+    // Snapshot: 2026-11-12T01:59:11.360Z; image copyright belongs to Tencent.
+    static let entries: [QQFaceEntry] = [
+        QQFaceEntry(id: 0, name: "惊讶", url: "https://koishi.js.org/QFace/assets/qq_emoji/0/png/0.png"),
+        QQFaceEntry(id: 1, name: "撇嘴", url: "https://koishi.js.org/QFace/assets/qq_emoji/1/png/1.png"),
+        QQFaceEntry(id: 2, name: "色", url: "https://koishi.js.org/QFace/assets/qq_emoji/2/png/2.png"),
+        QQFaceEntry(id: 3, name: "发呆", url: "https://koishi.js.org/QFace/assets/qq_emoji/3/png/3.png"),
+        QQFaceEntry(id: 4, name: "得意", url: "https://koishi.js.org/QFace/assets/qq_emoji/4/png/4.png"),
+        QQFaceEntry(id: 5, name: "流泪", url: "https://koishi.js.org/QFace/assets/qq_emoji/5/png/5_0.png"),
+        QQFaceEntry(id: 6, name: "害羞", url: "https://koishi.js.org/QFace/assets/qq_emoji/6/png/6.png"),
+        QQFaceEntry(id: 7, name: "闭嘴", url: "https://koishi.js.org/QFace/assets/qq_emoji/7/png/7.png"),
+        QQFaceEntry(id: 8, name: "睡", url: "https://koishi.js.org/QFace/assets/qq_emoji/8/png/8.png"),
+        QQFaceEntry(id: 9, name: "大哭", url: "https://koishi.js.org/QFace/assets/qq_emoji/9/png/9.png"),
+        QQFaceEntry(id: 10, name: "尴尬", url: "https://koishi.js.org/QFace/assets/qq_emoji/10/png/10.png"),
+        QQFaceEntry(id: 11, name: "发怒", url: "https://koishi.js.org/QFace/assets/qq_emoji/11/png/11.png"),
+        QQFaceEntry(id: 12, name: "调皮", url: "https://koishi.js.org/QFace/assets/qq_emoji/12/png/12.png"),
+        QQFaceEntry(id: 13, name: "呲牙", url: "https://koishi.js.org/QFace/assets/qq_emoji/13/png/13.png"),
+        QQFaceEntry(id: 14, name: "微笑", url: "https://koishi.js.org/QFace/assets/qq_emoji/14/png/14.png"),
+        QQFaceEntry(id: 15, name: "难过", url: "https://koishi.js.org/QFace/assets/qq_emoji/15/png/15.png"),
+        QQFaceEntry(id: 16, name: "酷", url: "https://koishi.js.org/QFace/assets/qq_emoji/16/png/16.png"),
+        QQFaceEntry(id: 18, name: "抓狂", url: "https://koishi.js.org/QFace/assets/qq_emoji/18/png/18.png"),
+        QQFaceEntry(id: 19, name: "吐", url: "https://koishi.js.org/QFace/assets/qq_emoji/19/png/19.png"),
+        QQFaceEntry(id: 20, name: "偷笑", url: "https://koishi.js.org/QFace/assets/qq_emoji/20/png/20.png"),
+        QQFaceEntry(id: 21, name: "可爱", url: "https://koishi.js.org/QFace/assets/qq_emoji/21/png/21.png"),
+        QQFaceEntry(id: 22, name: "白眼", url: "https://koishi.js.org/QFace/assets/qq_emoji/22/png/22.png"),
+        QQFaceEntry(id: 23, name: "傲慢", url: "https://koishi.js.org/QFace/assets/qq_emoji/23/png/23.png"),
+        QQFaceEntry(id: 24, name: "饥饿", url: "https://koishi.js.org/QFace/assets/qq_emoji/24/png/24.png"),
+        QQFaceEntry(id: 25, name: "困", url: "https://koishi.js.org/QFace/assets/qq_emoji/25/png/25.png"),
+        QQFaceEntry(id: 26, name: "惊恐", url: "https://koishi.js.org/QFace/assets/qq_emoji/26/png/26.png"),
+        QQFaceEntry(id: 27, name: "流汗", url: "https://koishi.js.org/QFace/assets/qq_emoji/27/png/27.png"),
+        QQFaceEntry(id: 28, name: "憨笑", url: "https://koishi.js.org/QFace/assets/qq_emoji/28/png/28.png"),
+        QQFaceEntry(id: 29, name: "悠闲", url: "https://koishi.js.org/QFace/assets/qq_emoji/29/png/29.png"),
+        QQFaceEntry(id: 30, name: "奋斗", url: "https://koishi.js.org/QFace/assets/qq_emoji/30/png/30.png"),
+        QQFaceEntry(id: 31, name: "咒骂", url: "https://koishi.js.org/QFace/assets/qq_emoji/31/png/31.png"),
+        QQFaceEntry(id: 32, name: "疑问", url: "https://koishi.js.org/QFace/assets/qq_emoji/32/png/32.png"),
+        QQFaceEntry(id: 33, name: "嘘", url: "https://koishi.js.org/QFace/assets/qq_emoji/33/png/33.png"),
+        QQFaceEntry(id: 34, name: "晕", url: "https://koishi.js.org/QFace/assets/qq_emoji/34/png/34.png"),
+        QQFaceEntry(id: 35, name: "折磨", url: "https://koishi.js.org/QFace/assets/qq_emoji/35/png/35.png"),
+        QQFaceEntry(id: 36, name: "衰", url: "https://koishi.js.org/QFace/assets/qq_emoji/36/png/36.png"),
+        QQFaceEntry(id: 37, name: "骷髅", url: "https://koishi.js.org/QFace/assets/qq_emoji/37/png/37.png"),
+        QQFaceEntry(id: 38, name: "敲打", url: "https://koishi.js.org/QFace/assets/qq_emoji/38/png/38.png"),
+        QQFaceEntry(id: 39, name: "再见", url: "https://koishi.js.org/QFace/assets/qq_emoji/39/png/39.png"),
+        QQFaceEntry(id: 41, name: "发抖", url: "https://koishi.js.org/QFace/assets/qq_emoji/41/png/41.png"),
+        QQFaceEntry(id: 42, name: "爱情", url: "https://koishi.js.org/QFace/assets/qq_emoji/42/png/42.png"),
+        QQFaceEntry(id: 43, name: "跳跳", url: "https://koishi.js.org/QFace/assets/qq_emoji/43/png/43.png"),
+        QQFaceEntry(id: 46, name: "猪头", url: "https://koishi.js.org/QFace/assets/qq_emoji/46/png/46.png"),
+        QQFaceEntry(id: 49, name: "拥抱", url: "https://koishi.js.org/QFace/assets/qq_emoji/49/png/49.png"),
+        QQFaceEntry(id: 53, name: "蛋糕", url: "https://koishi.js.org/QFace/assets/qq_emoji/53/png/53_0.png"),
+        QQFaceEntry(id: 55, name: "炸弹", url: "https://koishi.js.org/QFace/assets/qq_emoji/55/png/55.png"),
+        QQFaceEntry(id: 56, name: "刀", url: "https://koishi.js.org/QFace/assets/qq_emoji/56/png/56.png"),
+        QQFaceEntry(id: 59, name: "便便", url: "https://koishi.js.org/QFace/assets/qq_emoji/59/png/59.png"),
+        QQFaceEntry(id: 60, name: "咖啡", url: "https://koishi.js.org/QFace/assets/qq_emoji/60/png/60.png"),
+        QQFaceEntry(id: 63, name: "玫瑰", url: "https://koishi.js.org/QFace/assets/qq_emoji/63/png/63.png"),
+        QQFaceEntry(id: 64, name: "凋谢", url: "https://koishi.js.org/QFace/assets/qq_emoji/64/png/64.png"),
+        QQFaceEntry(id: 66, name: "爱心", url: "https://koishi.js.org/QFace/assets/qq_emoji/66/png/66.png"),
+        QQFaceEntry(id: 67, name: "心碎", url: "https://koishi.js.org/QFace/assets/qq_emoji/67/png/67.png"),
+        QQFaceEntry(id: 74, name: "太阳", url: "https://koishi.js.org/QFace/assets/qq_emoji/74/png/74_0.png"),
+        QQFaceEntry(id: 75, name: "月亮", url: "https://koishi.js.org/QFace/assets/qq_emoji/75/png/75_0.png"),
+        QQFaceEntry(id: 76, name: "赞", url: "https://koishi.js.org/QFace/assets/qq_emoji/76/png/76.png"),
+        QQFaceEntry(id: 77, name: "踩", url: "https://koishi.js.org/QFace/assets/qq_emoji/77/png/77.png"),
+        QQFaceEntry(id: 78, name: "握手", url: "https://koishi.js.org/QFace/assets/qq_emoji/78/png/78.png"),
+        QQFaceEntry(id: 79, name: "胜利", url: "https://koishi.js.org/QFace/assets/qq_emoji/79/png/79.png"),
+        QQFaceEntry(id: 85, name: "飞吻", url: "https://koishi.js.org/QFace/assets/qq_emoji/85/png/85.png"),
+        QQFaceEntry(id: 86, name: "怄火", url: "https://koishi.js.org/QFace/assets/qq_emoji/86/png/86.png"),
+        QQFaceEntry(id: 89, name: "西瓜", url: "https://koishi.js.org/QFace/assets/qq_emoji/89/png/89.png"),
+        QQFaceEntry(id: 96, name: "冷汗", url: "https://koishi.js.org/QFace/assets/qq_emoji/96/png/96.png"),
+        QQFaceEntry(id: 97, name: "擦汗", url: "https://koishi.js.org/QFace/assets/qq_emoji/97/png/97.png"),
+        QQFaceEntry(id: 98, name: "抠鼻", url: "https://koishi.js.org/QFace/assets/qq_emoji/98/png/98.png"),
+        QQFaceEntry(id: 99, name: "鼓掌", url: "https://koishi.js.org/QFace/assets/qq_emoji/99/png/99.png"),
+        QQFaceEntry(id: 100, name: "糗大了", url: "https://koishi.js.org/QFace/assets/qq_emoji/100/png/100.png"),
+        QQFaceEntry(id: 101, name: "坏笑", url: "https://koishi.js.org/QFace/assets/qq_emoji/101/png/101.png"),
+        QQFaceEntry(id: 102, name: "左哼哼", url: "https://koishi.js.org/QFace/assets/qq_emoji/102/png/102.png"),
+        QQFaceEntry(id: 103, name: "右哼哼", url: "https://koishi.js.org/QFace/assets/qq_emoji/103/png/103.png"),
+        QQFaceEntry(id: 104, name: "哈欠", url: "https://koishi.js.org/QFace/assets/qq_emoji/104/png/104.png"),
+        QQFaceEntry(id: 105, name: "鄙视", url: "https://koishi.js.org/QFace/assets/qq_emoji/105/png/105.png"),
+        QQFaceEntry(id: 106, name: "委屈", url: "https://koishi.js.org/QFace/assets/qq_emoji/106/png/106.png"),
+        QQFaceEntry(id: 107, name: "快哭了", url: "https://koishi.js.org/QFace/assets/qq_emoji/107/png/107.png"),
+        QQFaceEntry(id: 108, name: "阴险", url: "https://koishi.js.org/QFace/assets/qq_emoji/108/png/108.png"),
+        QQFaceEntry(id: 109, name: "左亲亲", url: "https://koishi.js.org/QFace/assets/qq_emoji/109/png/109.png"),
+        QQFaceEntry(id: 110, name: "吓", url: "https://koishi.js.org/QFace/assets/qq_emoji/110/png/110.png"),
+        QQFaceEntry(id: 111, name: "可怜", url: "https://koishi.js.org/QFace/assets/qq_emoji/111/png/111.png"),
+        QQFaceEntry(id: 112, name: "菜刀", url: "https://koishi.js.org/QFace/assets/qq_emoji/112/png/112.png"),
+        QQFaceEntry(id: 114, name: "篮球", url: "https://koishi.js.org/QFace/assets/qq_emoji/114/png/114_0.png"),
+        QQFaceEntry(id: 116, name: "示爱", url: "https://koishi.js.org/QFace/assets/qq_emoji/116/png/116.png"),
+        QQFaceEntry(id: 118, name: "抱拳", url: "https://koishi.js.org/QFace/assets/qq_emoji/118/png/118.png"),
+        QQFaceEntry(id: 119, name: "勾引", url: "https://koishi.js.org/QFace/assets/qq_emoji/119/png/119.png"),
+        QQFaceEntry(id: 120, name: "拳头", url: "https://koishi.js.org/QFace/assets/qq_emoji/120/png/120.png"),
+        QQFaceEntry(id: 121, name: "差劲", url: "https://koishi.js.org/QFace/assets/qq_emoji/121/png/121.png"),
+        QQFaceEntry(id: 123, name: "NO", url: "https://koishi.js.org/QFace/assets/qq_emoji/123/png/123.png"),
+        QQFaceEntry(id: 124, name: "OK", url: "https://koishi.js.org/QFace/assets/qq_emoji/124/png/124.png"),
+        QQFaceEntry(id: 125, name: "转圈", url: "https://koishi.js.org/QFace/assets/qq_emoji/125/png/125.png"),
+        QQFaceEntry(id: 129, name: "挥手", url: "https://koishi.js.org/QFace/assets/qq_emoji/129/png/129.png"),
+        QQFaceEntry(id: 137, name: "鞭炮", url: "https://koishi.js.org/QFace/assets/qq_emoji/137/png/137_0.png"),
+        QQFaceEntry(id: 144, name: "喝彩", url: "https://koishi.js.org/QFace/assets/qq_emoji/144/png/144.png"),
+        QQFaceEntry(id: 146, name: "爆筋", url: "https://koishi.js.org/QFace/assets/qq_emoji/146/png/146.png"),
+        QQFaceEntry(id: 147, name: "棒棒糖", url: "https://koishi.js.org/QFace/assets/qq_emoji/147/png/147.png"),
+        QQFaceEntry(id: 148, name: "喝奶", url: "https://koishi.js.org/QFace/assets/qq_emoji/148/png/148.png"),
+        QQFaceEntry(id: 169, name: "手枪", url: "https://koishi.js.org/QFace/assets/qq_emoji/169/png/169.png"),
+        QQFaceEntry(id: 171, name: "茶", url: "https://koishi.js.org/QFace/assets/qq_emoji/171/png/171.png"),
+        QQFaceEntry(id: 172, name: "眨眼睛", url: "https://koishi.js.org/QFace/assets/qq_emoji/172/png/172.png"),
+        QQFaceEntry(id: 173, name: "泪奔", url: "https://koishi.js.org/QFace/assets/qq_emoji/173/png/173.png"),
+        QQFaceEntry(id: 174, name: "无奈", url: "https://koishi.js.org/QFace/assets/qq_emoji/174/png/174.png"),
+        QQFaceEntry(id: 175, name: "卖萌", url: "https://koishi.js.org/QFace/assets/qq_emoji/175/png/175.png"),
+        QQFaceEntry(id: 176, name: "小纠结", url: "https://koishi.js.org/QFace/assets/qq_emoji/176/png/176.png"),
+        QQFaceEntry(id: 177, name: "喷血", url: "https://koishi.js.org/QFace/assets/qq_emoji/177/png/177.png"),
+        QQFaceEntry(id: 178, name: "斜眼笑", url: "https://koishi.js.org/QFace/assets/qq_emoji/178/png/178.png"),
+        QQFaceEntry(id: 179, name: "doge", url: "https://koishi.js.org/QFace/assets/qq_emoji/179/png/179.png"),
+        QQFaceEntry(id: 181, name: "戳一戳", url: "https://koishi.js.org/QFace/assets/qq_emoji/181/png/181_0.png"),
+        QQFaceEntry(id: 182, name: "笑哭", url: "https://koishi.js.org/QFace/assets/qq_emoji/182/png/182.png"),
+        QQFaceEntry(id: 183, name: "我最美", url: "https://koishi.js.org/QFace/assets/qq_emoji/183/png/183.png"),
+        QQFaceEntry(id: 185, name: "羊驼", url: "https://koishi.js.org/QFace/assets/qq_emoji/185/png/185.png"),
+        QQFaceEntry(id: 187, name: "幽灵", url: "https://koishi.js.org/QFace/assets/qq_emoji/187/png/187.png"),
+        QQFaceEntry(id: 201, name: "点赞", url: "https://koishi.js.org/QFace/assets/qq_emoji/201/png/201.png"),
+        QQFaceEntry(id: 212, name: "托腮", url: "https://koishi.js.org/QFace/assets/qq_emoji/212/png/212.png"),
+        QQFaceEntry(id: 262, name: "脑阔疼", url: "https://koishi.js.org/QFace/assets/qq_emoji/262/png/262.png"),
+        QQFaceEntry(id: 263, name: "沧桑", url: "https://koishi.js.org/QFace/assets/qq_emoji/263/png/263.png"),
+        QQFaceEntry(id: 264, name: "捂脸", url: "https://koishi.js.org/QFace/assets/qq_emoji/264/png/264.png"),
+        QQFaceEntry(id: 265, name: "辣眼睛", url: "https://koishi.js.org/QFace/assets/qq_emoji/265/png/265.png"),
+        QQFaceEntry(id: 266, name: "哦哟", url: "https://koishi.js.org/QFace/assets/qq_emoji/266/png/266.png"),
+        QQFaceEntry(id: 267, name: "头秃", url: "https://koishi.js.org/QFace/assets/qq_emoji/267/png/267.png"),
+        QQFaceEntry(id: 268, name: "问号脸", url: "https://koishi.js.org/QFace/assets/qq_emoji/268/png/268.png"),
+        QQFaceEntry(id: 269, name: "暗中观察", url: "https://koishi.js.org/QFace/assets/qq_emoji/269/png/269.png"),
+        QQFaceEntry(id: 270, name: "emm", url: "https://koishi.js.org/QFace/assets/qq_emoji/270/png/270.png"),
+        QQFaceEntry(id: 271, name: "吃瓜", url: "https://koishi.js.org/QFace/assets/qq_emoji/271/png/271.png"),
+        QQFaceEntry(id: 272, name: "呵呵哒", url: "https://koishi.js.org/QFace/assets/qq_emoji/272/png/272.png"),
+        QQFaceEntry(id: 273, name: "我酸了", url: "https://koishi.js.org/QFace/assets/qq_emoji/273/png/273.png"),
+        QQFaceEntry(id: 277, name: "汪汪", url: "https://koishi.js.org/QFace/assets/qq_emoji/277/png/277.png"),
+        QQFaceEntry(id: 281, name: "无眼笑", url: "https://koishi.js.org/QFace/assets/qq_emoji/281/png/281.png"),
+        QQFaceEntry(id: 282, name: "敬礼", url: "https://koishi.js.org/QFace/assets/qq_emoji/282/png/282.png"),
+        QQFaceEntry(id: 283, name: "狂笑", url: "https://koishi.js.org/QFace/assets/qq_emoji/283/png/283.png"),
+        QQFaceEntry(id: 284, name: "面无表情", url: "https://koishi.js.org/QFace/assets/qq_emoji/284/png/284.png"),
+        QQFaceEntry(id: 285, name: "摸鱼", url: "https://koishi.js.org/QFace/assets/qq_emoji/285/png/285.png"),
+        QQFaceEntry(id: 286, name: "魔鬼笑", url: "https://koishi.js.org/QFace/assets/qq_emoji/286/png/286.png"),
+        QQFaceEntry(id: 287, name: "哦", url: "https://koishi.js.org/QFace/assets/qq_emoji/287/png/287.png"),
+        QQFaceEntry(id: 289, name: "睁眼", url: "https://koishi.js.org/QFace/assets/qq_emoji/289/png/289.png"),
+        QQFaceEntry(id: 293, name: "摸锦鲤", url: "https://koishi.js.org/QFace/assets/qq_emoji/293/png/293.png"),
+        QQFaceEntry(id: 294, name: "期待", url: "https://koishi.js.org/QFace/assets/qq_emoji/294/png/294.png"),
+        QQFaceEntry(id: 295, name: "拿到红包", url: "https://koishi.js.org/QFace/assets/qq_emoji/295/png/295.png"),
+        QQFaceEntry(id: 297, name: "拜谢", url: "https://koishi.js.org/QFace/assets/qq_emoji/297/png/297.png"),
+        QQFaceEntry(id: 298, name: "元宝", url: "https://koishi.js.org/QFace/assets/qq_emoji/298/png/298.png"),
+        QQFaceEntry(id: 299, name: "牛啊", url: "https://koishi.js.org/QFace/assets/qq_emoji/299/png/299.png"),
+        QQFaceEntry(id: 300, name: "胖三斤", url: "https://koishi.js.org/QFace/assets/qq_emoji/300/png/300.png"),
+        QQFaceEntry(id: 302, name: "左拜年", url: "https://koishi.js.org/QFace/assets/qq_emoji/302/png/302.png"),
+        QQFaceEntry(id: 303, name: "右拜年", url: "https://koishi.js.org/QFace/assets/qq_emoji/303/png/303.png"),
+        QQFaceEntry(id: 305, name: "右亲亲", url: "https://koishi.js.org/QFace/assets/qq_emoji/305/png/305.png"),
+        QQFaceEntry(id: 306, name: "牛气冲天", url: "https://koishi.js.org/QFace/assets/qq_emoji/306/png/306.png"),
+        QQFaceEntry(id: 307, name: "喵喵", url: "https://koishi.js.org/QFace/assets/qq_emoji/307/png/307.png"),
+        QQFaceEntry(id: 311, name: "打call", url: "https://koishi.js.org/QFace/assets/qq_emoji/311/png/311_0.png"),
+        QQFaceEntry(id: 312, name: "变形", url: "https://koishi.js.org/QFace/assets/qq_emoji/312/png/312_0.png"),
+        QQFaceEntry(id: 314, name: "仔细分析", url: "https://koishi.js.org/QFace/assets/qq_emoji/314/png/314_0.png"),
+        QQFaceEntry(id: 317, name: "菜汪", url: "https://koishi.js.org/QFace/assets/qq_emoji/317/png/317_0.png"),
+        QQFaceEntry(id: 318, name: "崇拜", url: "https://koishi.js.org/QFace/assets/qq_emoji/318/png/318_0.png"),
+        QQFaceEntry(id: 319, name: "比心", url: "https://koishi.js.org/QFace/assets/qq_emoji/319/png/319_0.png"),
+        QQFaceEntry(id: 320, name: "庆祝", url: "https://koishi.js.org/QFace/assets/qq_emoji/320/png/320_0.png"),
+        QQFaceEntry(id: 323, name: "嫌弃", url: "https://koishi.js.org/QFace/assets/qq_emoji/323/png/323.png"),
+        QQFaceEntry(id: 324, name: "吃糖", url: "https://koishi.js.org/QFace/assets/qq_emoji/324/png/324_0.png"),
+        QQFaceEntry(id: 325, name: "惊吓", url: "https://koishi.js.org/QFace/assets/qq_emoji/325/png/325_0.png"),
+        QQFaceEntry(id: 326, name: "生气", url: "https://koishi.js.org/QFace/assets/qq_emoji/326/png/326_0.png"),
+        QQFaceEntry(id: 332, name: "举牌牌", url: "https://koishi.js.org/QFace/assets/qq_emoji/332/png/332.png"),
+        QQFaceEntry(id: 333, name: "烟花", url: "https://koishi.js.org/QFace/assets/qq_emoji/333/png/333_0.png"),
+        QQFaceEntry(id: 334, name: "虎虎生威", url: "https://koishi.js.org/QFace/assets/qq_emoji/334/png/334.png"),
+        QQFaceEntry(id: 336, name: "豹富", url: "https://koishi.js.org/QFace/assets/qq_emoji/336/png/336.png"),
+        QQFaceEntry(id: 337, name: "花朵脸", url: "https://koishi.js.org/QFace/assets/qq_emoji/337/png/337_0.png"),
+        QQFaceEntry(id: 338, name: "我想开了", url: "https://koishi.js.org/QFace/assets/qq_emoji/338/png/338_0.png"),
+        QQFaceEntry(id: 339, name: "舔屏", url: "https://koishi.js.org/QFace/assets/qq_emoji/339/png/339_0.png"),
+        QQFaceEntry(id: 341, name: "打招呼", url: "https://koishi.js.org/QFace/assets/qq_emoji/341/png/341_0.png"),
+        QQFaceEntry(id: 342, name: "酸Q", url: "https://koishi.js.org/QFace/assets/qq_emoji/342/png/342_0.png"),
+        QQFaceEntry(id: 343, name: "我方了", url: "https://koishi.js.org/QFace/assets/qq_emoji/343/png/343_0.png"),
+        QQFaceEntry(id: 344, name: "大怨种", url: "https://koishi.js.org/QFace/assets/qq_emoji/344/png/344_0.png"),
+        QQFaceEntry(id: 345, name: "红包多多", url: "https://koishi.js.org/QFace/assets/qq_emoji/345/png/345_0.png"),
+        QQFaceEntry(id: 346, name: "你真棒棒", url: "https://koishi.js.org/QFace/assets/qq_emoji/346/png/346_0.png"),
+        QQFaceEntry(id: 347, name: "大展宏兔", url: "https://koishi.js.org/QFace/assets/qq_emoji/347/png/347.png"),
+        QQFaceEntry(id: 349, name: "坚强", url: "https://koishi.js.org/QFace/assets/qq_emoji/349/png/349_0.png"),
+        QQFaceEntry(id: 350, name: "贴贴", url: "https://koishi.js.org/QFace/assets/qq_emoji/350/png/350_0.png"),
+        QQFaceEntry(id: 351, name: "敲敲", url: "https://koishi.js.org/QFace/assets/qq_emoji/351/png/351_0.png"),
+        QQFaceEntry(id: 352, name: "咦", url: "https://koishi.js.org/QFace/assets/qq_emoji/352/png/352.png"),
+        QQFaceEntry(id: 353, name: "拜托", url: "https://koishi.js.org/QFace/assets/qq_emoji/353/png/353.png"),
+        QQFaceEntry(id: 354, name: "尊嘟假嘟", url: "https://koishi.js.org/QFace/assets/qq_emoji/354/png/354.png"),
+        QQFaceEntry(id: 355, name: "耶", url: "https://koishi.js.org/QFace/assets/qq_emoji/355/png/355.png"),
+        QQFaceEntry(id: 356, name: "666", url: "https://koishi.js.org/QFace/assets/qq_emoji/356/png/356.png"),
+        QQFaceEntry(id: 357, name: "裂开", url: "https://koishi.js.org/QFace/assets/qq_emoji/357/png/357.png"),
+        QQFaceEntry(id: 358, name: "骰子", url: "https://koishi.js.org/QFace/assets/qq_emoji/358/png/358_0.png"),
+        QQFaceEntry(id: 359, name: "包剪锤", url: "https://koishi.js.org/QFace/assets/qq_emoji/359/png/359_0.png"),
+        QQFaceEntry(id: 360, name: "亲亲", url: "https://koishi.js.org/QFace/assets/qq_emoji/360/png/360_0.png"),
+        QQFaceEntry(id: 361, name: "狗狗笑哭", url: "https://koishi.js.org/QFace/assets/qq_emoji/361/png/361_0.png"),
+        QQFaceEntry(id: 362, name: "好兄弟", url: "https://koishi.js.org/QFace/assets/qq_emoji/362/png/362_0.png"),
+        QQFaceEntry(id: 363, name: "狗狗可怜", url: "https://koishi.js.org/QFace/assets/qq_emoji/363/png/363_0.png"),
+        QQFaceEntry(id: 364, name: "超级赞", url: "https://koishi.js.org/QFace/assets/qq_emoji/364/png/364_0.png"),
+        QQFaceEntry(id: 365, name: "狗狗生气", url: "https://koishi.js.org/QFace/assets/qq_emoji/365/png/365_0.png"),
+        QQFaceEntry(id: 366, name: "芒狗", url: "https://koishi.js.org/QFace/assets/qq_emoji/366/png/366_0.png"),
+        QQFaceEntry(id: 367, name: "狗狗疑问", url: "https://koishi.js.org/QFace/assets/qq_emoji/367/png/367_0.png"),
+        QQFaceEntry(id: 368, name: "奥特笑哭", url: "https://koishi.js.org/QFace/assets/qq_emoji/368/png/368_0.png"),
+        QQFaceEntry(id: 369, name: "彩虹", url: "https://koishi.js.org/QFace/assets/qq_emoji/369/png/369_0.png"),
+        QQFaceEntry(id: 370, name: "祝贺", url: "https://koishi.js.org/QFace/assets/qq_emoji/370/png/370_0.png"),
+        QQFaceEntry(id: 371, name: "冒泡", url: "https://koishi.js.org/QFace/assets/qq_emoji/371/png/371_0.png"),
+        QQFaceEntry(id: 372, name: "气呼呼", url: "https://koishi.js.org/QFace/assets/qq_emoji/372/png/372_0.png"),
+        QQFaceEntry(id: 373, name: "忙", url: "https://koishi.js.org/QFace/assets/qq_emoji/373/png/373_0.png"),
+        QQFaceEntry(id: 374, name: "波波流泪", url: "https://koishi.js.org/QFace/assets/qq_emoji/374/png/374_0.png"),
+        QQFaceEntry(id: 375, name: "超级鼓掌", url: "https://koishi.js.org/QFace/assets/qq_emoji/375/png/375_0.png"),
+        QQFaceEntry(id: 376, name: "跺脚", url: "https://koishi.js.org/QFace/assets/qq_emoji/376/png/376_0.png"),
+        QQFaceEntry(id: 377, name: "嗨", url: "https://koishi.js.org/QFace/assets/qq_emoji/377/png/377_0.png"),
+        QQFaceEntry(id: 378, name: "企鹅笑哭", url: "https://koishi.js.org/QFace/assets/qq_emoji/378/png/378_0.png"),
+        QQFaceEntry(id: 379, name: "企鹅流泪", url: "https://koishi.js.org/QFace/assets/qq_emoji/379/png/379_0.png"),
+        QQFaceEntry(id: 380, name: "真棒", url: "https://koishi.js.org/QFace/assets/qq_emoji/380/png/380_0.png"),
+        QQFaceEntry(id: 381, name: "路过", url: "https://koishi.js.org/QFace/assets/qq_emoji/381/png/381_0.png"),
+        QQFaceEntry(id: 382, name: "emo", url: "https://koishi.js.org/QFace/assets/qq_emoji/382/png/382_0.png"),
+        QQFaceEntry(id: 383, name: "企鹅爱心", url: "https://koishi.js.org/QFace/assets/qq_emoji/383/png/383_0.png"),
+        QQFaceEntry(id: 384, name: "晚安", url: "https://koishi.js.org/QFace/assets/qq_emoji/384/png/384_0.png"),
+        QQFaceEntry(id: 385, name: "太气了", url: "https://koishi.js.org/QFace/assets/qq_emoji/385/png/385_0.png"),
+        QQFaceEntry(id: 386, name: "呜呜呜", url: "https://koishi.js.org/QFace/assets/qq_emoji/386/png/386_0.png"),
+        QQFaceEntry(id: 387, name: "太好笑", url: "https://koishi.js.org/QFace/assets/qq_emoji/387/png/387_0.png"),
+        QQFaceEntry(id: 388, name: "太头疼", url: "https://koishi.js.org/QFace/assets/qq_emoji/388/png/388_0.png"),
+        QQFaceEntry(id: 389, name: "太赞了", url: "https://koishi.js.org/QFace/assets/qq_emoji/389/png/389_0.png"),
+        QQFaceEntry(id: 390, name: "太头秃", url: "https://koishi.js.org/QFace/assets/qq_emoji/390/png/390_0.png"),
+        QQFaceEntry(id: 391, name: "太沧桑", url: "https://koishi.js.org/QFace/assets/qq_emoji/391/png/391_0.png"),
+        QQFaceEntry(id: 392, name: "龙年快乐", url: "https://koishi.js.org/QFace/assets/qq_emoji/392/png/392_0.png"),
+        QQFaceEntry(id: 393, name: "新年中龙", url: "https://koishi.js.org/QFace/assets/qq_emoji/393/png/393_0.png"),
+        QQFaceEntry(id: 394, name: "新年大龙", url: "https://koishi.js.org/QFace/assets/qq_emoji/394/png/394_0.png"),
+        QQFaceEntry(id: 395, name: "略略略", url: "https://koishi.js.org/QFace/assets/qq_emoji/395/png/395_0.png"),
+        QQFaceEntry(id: 396, name: "狼狗", url: "https://koishi.js.org/QFace/assets/qq_emoji/396/png/396_0.png"),
+        QQFaceEntry(id: 397, name: "抛媚眼", url: "https://koishi.js.org/QFace/assets/qq_emoji/397/png/397_0.png"),
+        QQFaceEntry(id: 398, name: "超级ok", url: "https://koishi.js.org/QFace/assets/qq_emoji/398/png/398_0.png"),
+        QQFaceEntry(id: 399, name: "tui", url: "https://koishi.js.org/QFace/assets/qq_emoji/399/png/399_0.png"),
+        QQFaceEntry(id: 400, name: "快乐", url: "https://koishi.js.org/QFace/assets/qq_emoji/400/png/400_0.png"),
+        QQFaceEntry(id: 401, name: "超级转圈", url: "https://koishi.js.org/QFace/assets/qq_emoji/401/png/401_0.png"),
+        QQFaceEntry(id: 402, name: "别说话", url: "https://koishi.js.org/QFace/assets/qq_emoji/402/png/402_0.png"),
+        QQFaceEntry(id: 403, name: "出去玩", url: "https://koishi.js.org/QFace/assets/qq_emoji/403/png/403_0.png"),
+        QQFaceEntry(id: 404, name: "闪亮登场", url: "https://koishi.js.org/QFace/assets/qq_emoji/404/png/404_0.png"),
+        QQFaceEntry(id: 405, name: "好运来", url: "https://koishi.js.org/QFace/assets/qq_emoji/405/png/405_0.png"),
+        QQFaceEntry(id: 406, name: "姐是女王", url: "https://koishi.js.org/QFace/assets/qq_emoji/406/png/406_0.png"),
+        QQFaceEntry(id: 407, name: "我听听", url: "https://koishi.js.org/QFace/assets/qq_emoji/407/png/407_0.png"),
+        QQFaceEntry(id: 408, name: "臭美", url: "https://koishi.js.org/QFace/assets/qq_emoji/408/png/408_0.png"),
+        QQFaceEntry(id: 409, name: "送你花花", url: "https://koishi.js.org/QFace/assets/qq_emoji/409/png/409_0.png"),
+        QQFaceEntry(id: 410, name: "么么哒", url: "https://koishi.js.org/QFace/assets/qq_emoji/410/png/410_0.png"),
+        QQFaceEntry(id: 411, name: "一起嗨", url: "https://koishi.js.org/QFace/assets/qq_emoji/411/png/411_0.png"),
+        QQFaceEntry(id: 412, name: "开心", url: "https://koishi.js.org/QFace/assets/qq_emoji/412/png/412_0.png"),
+        QQFaceEntry(id: 413, name: "摇起来", url: "https://koishi.js.org/QFace/assets/qq_emoji/413/png/413_0.png"),
+        QQFaceEntry(id: 415, name: "划龙舟", url: "https://koishi.js.org/QFace/assets/qq_emoji/415/png/415_0.png"),
+        QQFaceEntry(id: 416, name: "中龙舟", url: "https://koishi.js.org/QFace/assets/qq_emoji/416/png/416_0.png"),
+        QQFaceEntry(id: 417, name: "大龙舟", url: "https://koishi.js.org/QFace/assets/qq_emoji/417/png/417_0.png"),
+        QQFaceEntry(id: 418, name: "填罐罐", url: "https://koishi.js.org/QFace/assets/qq_emoji/418/png/418_0.png"),
+        QQFaceEntry(id: 419, name: "火车", url: "https://koishi.js.org/QFace/assets/qq_emoji/419/png/419_0.png"),
+        QQFaceEntry(id: 420, name: "中火车", url: "https://koishi.js.org/QFace/assets/qq_emoji/420/png/420_0.png"),
+        QQFaceEntry(id: 421, name: "大火车", url: "https://koishi.js.org/QFace/assets/qq_emoji/421/png/421_0.png"),
+        QQFaceEntry(id: 422, name: "粽于等到你", url: "https://koishi.js.org/QFace/assets/qq_emoji/422/png/422_0.png"),
+        QQFaceEntry(id: 423, name: "复兴号", url: "https://koishi.js.org/QFace/assets/qq_emoji/423/png/423_0.png"),
+        QQFaceEntry(id: 424, name: "续标识", url: "https://koishi.js.org/QFace/assets/qq_emoji/424/png/424_0.png"),
+        QQFaceEntry(id: 425, name: "求放过", url: "https://koishi.js.org/QFace/assets/qq_emoji/425/png/425_0.png"),
+        QQFaceEntry(id: 426, name: "玩火", url: "https://koishi.js.org/QFace/assets/qq_emoji/426/png/426_0.png"),
+        QQFaceEntry(id: 427, name: "偷感", url: "https://koishi.js.org/QFace/assets/qq_emoji/427/png/427_0.png"),
+        QQFaceEntry(id: 428, name: "收到", url: "https://koishi.js.org/QFace/assets/qq_emoji/428/png/428.png"),
+        QQFaceEntry(id: 429, name: "蛇年快乐", url: "https://koishi.js.org/QFace/assets/qq_emoji/429/png/429_0.png"),
+        QQFaceEntry(id: 430, name: "蛇身", url: "https://koishi.js.org/QFace/assets/qq_emoji/430/png/430_0.png"),
+        QQFaceEntry(id: 431, name: "蛇尾", url: "https://koishi.js.org/QFace/assets/qq_emoji/431/png/431_0.png"),
+        QQFaceEntry(id: 432, name: "灵蛇献瑞", url: "https://koishi.js.org/QFace/assets/qq_emoji/432/png/432_0.png"),
+        QQFaceEntry(id: 433, name: "大鸽", url: "https://koishi.js.org/QFace/assets/qq_emoji/433/png/433_0.png"),
+        QQFaceEntry(id: 434, name: "鸽来了", url: "https://koishi.js.org/QFace/assets/qq_emoji/434/png/434_0.png"),
+        QQFaceEntry(id: 435, name: "关我鸟事", url: "https://koishi.js.org/QFace/assets/qq_emoji/435/png/435_0.png"),
+        QQFaceEntry(id: 436, name: "跟鸽走", url: "https://koishi.js.org/QFace/assets/qq_emoji/436/png/436_0.png"),
+        QQFaceEntry(id: 437, name: "鸽鸽生气", url: "https://koishi.js.org/QFace/assets/qq_emoji/437/png/437_0.png"),
+        QQFaceEntry(id: 438, name: "可靠", url: "https://koishi.js.org/QFace/assets/qq_emoji/438/png/438_0.png"),
+        QQFaceEntry(id: 439, name: "鸽瞅瞅", url: "https://koishi.js.org/QFace/assets/qq_emoji/439/png/439_0.png"),
+        QQFaceEntry(id: 440, name: "鸽喜欢", url: "https://koishi.js.org/QFace/assets/qq_emoji/440/png/440_0.png"),
+        QQFaceEntry(id: 441, name: "相信鸽", url: "https://koishi.js.org/QFace/assets/qq_emoji/441/png/441_0.png"),
+        QQFaceEntry(id: 442, name: "鸽王", url: "https://koishi.js.org/QFace/assets/qq_emoji/442/png/442_0.png"),
+        QQFaceEntry(id: 443, name: "戳一下", url: "https://koishi.js.org/QFace/assets/qq_emoji/443/png/443.png"),
+        QQFaceEntry(id: 444, name: "超级6", url: "https://koishi.js.org/QFace/assets/qq_emoji/444/png/444.png"),
+        QQFaceEntry(id: 445, name: "比个心", url: "https://koishi.js.org/QFace/assets/qq_emoji/445/png/445.png"),
+        QQFaceEntry(id: 446, name: "超级心碎", url: "https://koishi.js.org/QFace/assets/qq_emoji/446/png/446.png"),
+        QQFaceEntry(id: 447, name: "太赞了", url: "https://koishi.js.org/QFace/assets/qq_emoji/447/png/447.png"),
+        QQFaceEntry(id: 448, name: "放大招", url: "https://koishi.js.org/QFace/assets/qq_emoji/448/png/448.png"),
+        QQFaceEntry(id: 449, name: "+1", url: "https://koishi.js.org/QFace/assets/qq_emoji/449/png/449.png"),
+        QQFaceEntry(id: 450, name: "撇嘴", url: "https://koishi.js.org/QFace/assets/qq_emoji/450/png/450_0.png"),
+        QQFaceEntry(id: 451, name: "色", url: "https://koishi.js.org/QFace/assets/qq_emoji/451/png/451_0.png"),
+        QQFaceEntry(id: 452, name: "微笑", url: "https://koishi.js.org/QFace/assets/qq_emoji/452/png/452_0.png"),
+        QQFaceEntry(id: 453, name: "发呆", url: "https://koishi.js.org/QFace/assets/qq_emoji/453/png/453_0.png"),
+        QQFaceEntry(id: 454, name: "得意", url: "https://koishi.js.org/QFace/assets/qq_emoji/454/png/454_0.png"),
+        QQFaceEntry(id: 455, name: "害羞", url: "https://koishi.js.org/QFace/assets/qq_emoji/455/png/455_0.png"),
+        QQFaceEntry(id: 456, name: "闭嘴", url: "https://koishi.js.org/QFace/assets/qq_emoji/456/png/456_0.png"),
+        QQFaceEntry(id: 457, name: "睡", url: "https://koishi.js.org/QFace/assets/qq_emoji/457/png/457_0.png"),
+        QQFaceEntry(id: 458, name: "我吗", url: "https://koishi.js.org/QFace/assets/qq_emoji/458/png/458_0.png"),
+        QQFaceEntry(id: 459, name: "优雅", url: "https://koishi.js.org/QFace/assets/qq_emoji/459/png/459_0.png"),
+        QQFaceEntry(id: 460, name: "硬撑", url: "https://koishi.js.org/QFace/assets/qq_emoji/460/png/460_0.png"),
+        QQFaceEntry(id: 461, name: "宕机", url: "https://koishi.js.org/QFace/assets/qq_emoji/461/png/461_0.png"),
+        QQFaceEntry(id: 462, name: "无语", url: "https://koishi.js.org/QFace/assets/qq_emoji/462/png/462_0.png"),
+        QQFaceEntry(id: 463, name: "新年快乐", url: "https://koishi.js.org/QFace/assets/qq_emoji/463/png/463_0.png"),
+        QQFaceEntry(id: 464, name: "马上到", url: "https://koishi.js.org/QFace/assets/qq_emoji/464/png/464_0.png"),
+        QQFaceEntry(id: 465, name: "拆红包", url: "https://koishi.js.org/QFace/assets/qq_emoji/465/png/465_0.png"),
+        QQFaceEntry(id: 466, name: "羞羞哒", url: "https://koishi.js.org/QFace/assets/qq_emoji/466/png/466_0.png"),
+        QQFaceEntry(id: 467, name: "摇花手", url: "https://koishi.js.org/QFace/assets/qq_emoji/467/png/467_0.png"),
+        QQFaceEntry(id: 468, name: "失眠", url: "https://koishi.js.org/QFace/assets/qq_emoji/468/png/468_0.png"),
+        QQFaceEntry(id: 469, name: "坚毅", url: "https://koishi.js.org/QFace/assets/qq_emoji/469/png/469_0.png"),
+        QQFaceEntry(id: 470, name: "马到成功", url: "https://koishi.js.org/QFace/assets/qq_emoji/470/png/470.png"),
+        QQFaceEntry(id: 471, name: "深情", url: "https://koishi.js.org/QFace/assets/qq_emoji/471/png/471_0.png"),
+        QQFaceEntry(id: 472, name: "心动", url: "https://koishi.js.org/QFace/assets/qq_emoji/472/png/472_0.png"),
+        QQFaceEntry(id: 473, name: "爱意", url: "https://koishi.js.org/QFace/assets/qq_emoji/473/png/473_0.png"),
+        QQFaceEntry(id: 474, name: "给你一拳", url: "https://koishi.js.org/QFace/assets/qq_emoji/474/png/474_0.png"),
+        QQFaceEntry(id: 475, name: "干饭", url: "https://koishi.js.org/QFace/assets/qq_emoji/475/png/475_0.png"),
+        QQFaceEntry(id: 476, name: "不是吧", url: "https://koishi.js.org/QFace/assets/qq_emoji/476/png/476_0.png"),
+        QQFaceEntry(id: 477, name: "你懂的", url: "https://koishi.js.org/QFace/assets/qq_emoji/477/png/477_0.png"),
+        QQFaceEntry(id: 478, name: "对的对的", url: "https://koishi.js.org/QFace/assets/qq_emoji/478/png/478_0.png"),
+        QQFaceEntry(id: 479, name: "不对不对", url: "https://koishi.js.org/QFace/assets/qq_emoji/479/png/479_0.png"),
+        QQFaceEntry(id: 480, name: "散味儿", url: "https://koishi.js.org/QFace/assets/qq_emoji/480/png/480_0.png"),
+        QQFaceEntry(id: 481, name: "学习", url: "https://koishi.js.org/QFace/assets/qq_emoji/481/png/481_0.png"),
+        QQFaceEntry(id: 482, name: "热化了", url: "https://koishi.js.org/QFace/assets/qq_emoji/482/png/482_0.png"),
+        QQFaceEntry(id: 483, name: "略", url: "https://koishi.js.org/QFace/assets/qq_emoji/483/png/483_0.png"),
+        QQFaceEntry(id: 484, name: "比爱心", url: "https://koishi.js.org/QFace/assets/qq_emoji/484/png/484_0.png"),
+        QQFaceEntry(id: 485, name: "开学啦", url: "https://koishi.js.org/QFace/assets/qq_emoji/485/png/485_0.png"),
+        QQFaceEntry(id: 486, name: "开学啦2", url: "https://koishi.js.org/QFace/assets/qq_emoji/486/png/486_0.png"),
+        QQFaceEntry(id: 487, name: "开学啦3", url: "https://koishi.js.org/QFace/assets/qq_emoji/487/png/487_0.png"),
+        QQFaceEntry(id: 488, name: "开学大吉", url: "https://koishi.js.org/QFace/assets/qq_emoji/488/png/488_0.png"),
+        QQFaceEntry(id: 489, name: "知识增加", url: "https://koishi.js.org/QFace/assets/qq_emoji/489/png/489_0.png"),
+        QQFaceEntry(id: 490, name: "能送我吗", url: "https://koishi.js.org/QFace/assets/qq_emoji/490/png/490_0.png"),
+        QQFaceEntry(id: 491, name: "自信学霸", url: "https://koishi.js.org/QFace/assets/qq_emoji/491/png/491_0.png"),
+        QQFaceEntry(id: 492, name: "让我细品", url: "https://koishi.js.org/QFace/assets/qq_emoji/492/png/492_0.png"),
+        QQFaceEntry(id: 493, name: "又是早八", url: "https://koishi.js.org/QFace/assets/qq_emoji/493/png/493_0.png"),
+        QQFaceEntry(id: 494, name: "举杯邀月", url: "https://koishi.js.org/QFace/assets/qq_emoji/494/png/494_0.png"),
+        QQFaceEntry(id: 495, name: "兔来", url: "https://koishi.js.org/QFace/assets/qq_emoji/495/png/495_0.png"),
+        QQFaceEntry(id: 496, name: "阴晴圆缺", url: "https://koishi.js.org/QFace/assets/qq_emoji/496/png/496_0.png"),
+        QQFaceEntry(id: 497, name: "休假了", url: "https://koishi.js.org/QFace/assets/qq_emoji/497/png/497_0.png"),
+        QQFaceEntry(id: 498, name: "中!", url: "https://koishi.js.org/QFace/assets/qq_emoji/498/png/498_0.png"),
+        QQFaceEntry(id: 499, name: "观月C位", url: "https://koishi.js.org/QFace/assets/qq_emoji/499/png/499_0.png"),
+        QQFaceEntry(id: 500, name: "秋秋赏月", url: "https://koishi.js.org/QFace/assets/qq_emoji/500/png/500_0.png"),
+        QQFaceEntry(id: 501, name: "秋秋之约", url: "https://koishi.js.org/QFace/assets/qq_emoji/501/png/501_0.png"),
+        QQFaceEntry(id: 502, name: "秋秋泛舟", url: "https://koishi.js.org/QFace/assets/qq_emoji/502/png/502_0.png"),
+        QQFaceEntry(id: 503, name: "秋愿达成", url: "https://koishi.js.org/QFace/assets/qq_emoji/503/png/503_0.png"),
+        QQFaceEntry(id: 504, name: "同你玩", url: "https://koishi.js.org/QFace/assets/qq_emoji/504/png/504_0.png"),
+        QQFaceEntry(id: 505, name: "送花花", url: "https://koishi.js.org/QFace/assets/qq_emoji/505/png/505_0.png"),
+        QQFaceEntry(id: 506, name: "捡到宝了", url: "https://koishi.js.org/QFace/assets/qq_emoji/506/png/506_0.png"),
+        QQFaceEntry(id: 507, name: "被发现了", url: "https://koishi.js.org/QFace/assets/qq_emoji/507/png/507_0.png"),
+        QQFaceEntry(id: 508, name: "马可波罗", url: "https://koishi.js.org/QFace/assets/qq_emoji/508/png/508_0.png"),
+        QQFaceEntry(id: 509, name: "李白", url: "https://koishi.js.org/QFace/assets/qq_emoji/509/png/509_0.png"),
+        QQFaceEntry(id: 510, name: "妲己", url: "https://koishi.js.org/QFace/assets/qq_emoji/510/png/510_0.png"),
+        QQFaceEntry(id: 511, name: "朵莉亚", url: "https://koishi.js.org/QFace/assets/qq_emoji/511/png/511_0.png"),
+        QQFaceEntry(id: 512, name: "王者召唤", url: "https://koishi.js.org/QFace/assets/qq_emoji/512/png/512_0.png"),
+        QQFaceEntry(id: 513, name: "王者开大", url: "https://koishi.js.org/QFace/assets/qq_emoji/513/png/513_0.png"),
+        QQFaceEntry(id: 514, name: "王者连招", url: "https://koishi.js.org/QFace/assets/qq_emoji/514/png/514_0.png"),
+        QQFaceEntry(id: 515, name: "王者再战", url: "https://koishi.js.org/QFace/assets/qq_emoji/515/png/515_0.png"),
+        QQFaceEntry(id: 524, name: "朵莉亚", url: "https://koishi.js.org/QFace/assets/qq_emoji/524/png/524_0.png"),
+    ]
+    static func label(_ id: Int) -> String {
+        entries.first(where: { $0.id == id }).map { "[" + $0.name + "]" } ?? "[QQ表情 " + String(id) + "]"
+    }
+}
+
+struct QQFaceSelectionPanel: View {
+    let store: ChatStore
+    let conversationID: String
+    let onSelect: (QQFaceEntry) -> Void
+    @State private var query = ""
+    var body: some View {
+        VStack {
+            Text("按图片发送 QQ 表情；不是群聊原生表情标记。图片由第三方目录在线提供。")
+                .font(.footnote).foregroundStyle(.secondary).padding(.horizontal)
+            TextField("搜索名称或 ID", text: $query).textFieldStyle(.roundedBorder).padding(.horizontal)
+            ScrollView {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 64))], spacing: 12) {
+                    ForEach(QQFaceCatalog.entries.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) || String($0.id).contains(query) }) { face in
+                        Button { onSelect(face) } label: {
+                            VStack {
+                                AsyncImage(url: URL(string: face.url)) { image in
+                                    image.resizable().scaledToFit()
+                                } placeholder: { Text(String(face.id)).foregroundStyle(.secondary) }
+                                .frame(width: 40, height: 40)
+                                Text(face.name).font(.caption2).lineLimit(1)
+                            }.frame(maxWidth: .infinity)
+                        }.buttonStyle(.plain)
+                        .accessibilityLabel("按图片发送 QQ 表情 " + face.name)
+                    }
+                }.padding(12)
+            }
+        }
+    }
+}
+
 struct StickerLibraryPanel: View {
     let store: ChatStore
     let onSelect: (String) -> Void
@@ -2382,6 +2764,8 @@ struct EmojiSelectionPanel: View {
     let emojis: [String]
     let store: ChatStore
     let onSticker: (String) -> Void
+    let conversationID: String
+    let onQQFace: (QQFaceEntry) -> Void
     @State private var selectedTab = 0
     @Environment(\.dismiss) private var dismiss
 
@@ -2391,8 +2775,14 @@ struct EmojiSelectionPanel: View {
                 Picker("表情类型", selection: $selectedTab) {
                     Text("表情").tag(0)
                     Text("表情包").tag(1)
+                    Text("QQ 表情").tag(2)
                 }.pickerStyle(.segmented).padding(.horizontal, 16)
-                if selectedTab == 1 {
+                if selectedTab == 2 {
+                    QQFaceSelectionPanel(store: store, conversationID: conversationID) { face in
+                        onQQFace(face)
+                        dismiss()
+                    }
+                } else if selectedTab == 1 {
                     StickerLibraryPanel(store: store) { name in
                         onSticker(name)
                         dismiss()
@@ -2589,11 +2979,24 @@ struct ComposerInput: View {
 
         }
         .sheet(isPresented: $showEmoji, onDismiss: { isFocused = true }) {
-            EmojiSelectionPanel(text: $text, emojis: emojis, store: store) { name in
+            EmojiSelectionPanel(text: $text, emojis: emojis, store: store, onSticker: { name in
                 let quote = quoting
                 onCancelQuote()
                 Task { await store.sendSticker(name, to: conversationID, quote: quote) }
-            }
+            }, conversationID: conversationID, onQQFace: { face in
+                let quote = quoting
+                Task {
+                    do {
+                        guard let url = URL(string: face.url) else { return }
+                        let (data, response) = try await URLSession.shared.data(from: url)
+                        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode), data.count <= 10 * 1024 * 1024, UIImage(data: data) != nil else {
+                            store.error = "QQ 表情图片加载失败，请稍后再试。"
+                            return
+                        }
+                        await store.sendImage(data, to: conversationID, quote: quote)
+                    } catch { store.error = "QQ 表情图片加载失败，请检查网络。" }
+                }
+            })
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
