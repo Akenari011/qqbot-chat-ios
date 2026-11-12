@@ -1825,7 +1825,10 @@ struct ChatView: View {
     }
     private func handlePreview(_ image: UIImage) { previewImage = image; showPreview = true }
     private func handleEdit(_ target: ChatMessage) { editingMessage = target; editText = target.text }
-    private func handlePlayVideo(_ url: URL) { playingVideoURL = url }
+    private func handlePlayVideo(_ url: URL) {
+        cancelRecording()
+        playingVideoURL = url
+    }
     private func handleLongPress(_ target: ChatMessage) { menuMessage = target }
     private func handleForward(_ target: ChatMessage) { forwardMessage = target; showForwardPicker = true }
     private func handleReactionUsers(_ messageID: String) {
@@ -2103,9 +2106,9 @@ struct ChatView: View {
                 .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("取消") { showForwardPicker = false; forwardMessage = nil } } }
             }
         }
-        .sheet(isPresented: Binding(get: { playingVideoURL != nil }, set: { if !$0 { playingVideoURL = nil } })) {
+        .fullScreenCover(isPresented: Binding(get: { playingVideoURL != nil }, set: { if !$0 { playingVideoURL = nil } })) {
             if let url = playingVideoURL {
-                VideoPlayer(player: AVPlayer(url: url)).ignoresSafeArea()
+                VideoPlaybackScreen(url: url)
             }
         }
         .sheet(isPresented: $showReactionUsers) {
@@ -2282,7 +2285,7 @@ struct ChatView: View {
                         Color.clear.frame(height: 1).id("chatBottom")
                     }
                     .padding(.horizontal, 12).padding(.vertical, 12)
-                    .animation(.easeInOut(duration: 0.2), value: visibleMessages.count)
+                    // Avoid animating every visible row when new messages arrive during scrolling.
                 }
                 .defaultScrollAnchor(.bottom)
                 .scrollDismissesKeyboard(.interactively)
@@ -3077,6 +3080,41 @@ struct ComposerInput: View {
     }
 }
 
+struct VideoPlaybackScreen: View {
+    let url: URL
+    @Environment(\.dismiss) private var dismiss
+    @State private var player: AVPlayer
+    @State private var playbackError: String?
+    init(url: URL) {
+        self.url = url
+        _player = State(initialValue: AVPlayer(url: url))
+    }
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Color.black.ignoresSafeArea()
+            VideoPlayer(player: player)
+            Button { dismiss() } label: {
+                Image(systemName: "xmark").font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white).frame(width: 44, height: 44)
+                    .background(.black.opacity(0.55), in: Circle())
+            }.padding(16).accessibilityLabel("关闭视频")
+        }
+        .task {
+            do {
+                try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+                try AVAudioSession.sharedInstance().setActive(true)
+                player.isMuted = false
+                player.volume = 1
+                player.play()
+            } catch { playbackError = "无法启用视频声音，请检查音频设备后重试。" }
+        }
+        .onDisappear { player.pause() }
+        .alert("视频播放", isPresented: Binding(get: { playbackError != nil }, set: { if !$0 { playbackError = nil } })) {
+            Button("好") { playbackError = nil }
+        } message: { Text(playbackError ?? "") }
+    }
+}
+
 struct ImagePreview: View {
     let image: UIImage?
     let onClose: () -> Void
@@ -3170,6 +3208,11 @@ func messageBubbleRadii(fromBot: Bool, mergedTop: Bool, mergedBottom: Bool) -> R
         topLeading: 16, bottomLeading: 16,
         bottomTrailing: 16, topTrailing: 16
     )
+}
+
+@MainActor
+enum MessageTextRenderCache {
+    static var values: [String: AttributedString] = [:]
 }
 
 struct MessageRow: View {
@@ -3296,6 +3339,7 @@ struct MessageRow: View {
                             .padding(.horizontal, 6).padding(.vertical, 2)
                             .background(Color.black.opacity(0.35), in: Capsule())
                             .padding(.trailing, 6).padding(.bottom, 6)
+                            .allowsHitTesting(false)
                         }
                     }
                 if let buttons = message.buttons, !buttons.isEmpty {
@@ -3414,6 +3458,7 @@ struct MessageRow: View {
                     // An exact aspect-fit frame avoids centered blank space beside tall images.
                     .frame(width: image.size.width * scale, height: image.size.height * scale)
                     .clipShape(RoundedRectangle(cornerRadius: 15))
+                    .contentShape(.interaction, RoundedRectangle(cornerRadius: 15))
                     .onTapGesture { onPreview(image) }
             } else {
                 ZStack {
@@ -3433,8 +3478,10 @@ struct MessageRow: View {
                     Image(systemName: "play.circle.fill").font(.system(size: 44)).foregroundStyle(.white)
                         .shadow(radius: 4)
                 }
-                .frame(width: 240, height: 160)
+                .frame(width: min(240, bubbleMaxWidth), height: 160)
                 .clipShape(RoundedRectangle(cornerRadius: 15))
+                // Clipping alone does not restrict hit testing of scaledToFill content.
+                .contentShape(.interaction, RoundedRectangle(cornerRadius: 15))
             }
             .buttonStyle(.plain)
         } else if let name = message.audioFile, let url = store.mediaURL(named: name) {
@@ -3565,6 +3612,8 @@ struct MessageRow: View {
     }
 
     private func markdownText(_ text: String) -> AttributedString {
+        let key = (message.fromBot ? "out:" : "in:") + text
+        if let cached = MessageTextRenderCache.values[key] { return cached }
         var attributed: AttributedString
         if let parsed = try? AttributedString(
             markdown: text,
@@ -3583,6 +3632,8 @@ struct MessageRow: View {
             attributed[range].link = url
             attributed[range].foregroundColor = linkColor
         }
+        if MessageTextRenderCache.values.count >= 256 { MessageTextRenderCache.values.removeAll(keepingCapacity: true) }
+        MessageTextRenderCache.values[key] = attributed
         return attributed
     }
 
