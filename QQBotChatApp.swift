@@ -3264,6 +3264,67 @@ enum MessageTextRenderCache {
     static var values: [String: AttributedString] = [:]
 }
 
+struct ForwardedTranscript {
+    let raw: String
+    var isRecord: Bool {
+        raw.contains("=== 消息 ") && raw.contains("[消息内容]") && raw.contains("[发送者]")
+    }
+    var preview: String {
+        raw.components(separatedBy: .newlines)
+            .filter { $0.hasPrefix("[消息内容]") }
+            .prefix(3)
+            .map { String($0.dropFirst("[消息内容]".count)).trimmingCharacters(in: .whitespaces) }
+            .joined(separator: "
+")
+    }
+}
+
+struct ForwardedTranscriptCard: View {
+    let text: String
+    @State private var showDetail = false
+    var body: some View {
+        Button { showDetail = true } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                Label("聊天记录", systemImage: "text.bubble.on.bubble")
+                    .font(.system(size: 16, weight: .semibold))
+                Text(ForwardedTranscript(raw: text).preview)
+                    .font(.system(size: 14)).foregroundStyle(.secondary).lineLimit(3)
+                Divider()
+                HStack {
+                    Text("查看完整记录").font(.caption)
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.caption)
+                }.foregroundStyle(.secondary)
+            }.padding(12)
+                .frame(width: 250, alignment: .leading)
+                .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
+                .contentShape(RoundedRectangle(cornerRadius: 16))
+        }.buttonStyle(.plain)
+        .sheet(isPresented: $showDetail) {
+            ForwardedTranscriptDetail(text: text)
+        }
+    }
+}
+
+struct ForwardedTranscriptDetail: View {
+    let text: String
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                Text(text).font(.system(size: 16))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+            }
+            .navigationTitle("聊天记录").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) { Button("完成") { dismiss() } }
+            }
+        }
+    }
+}
+
 struct MessageRow: View {
     let store: ChatStore
     let conversationID: String
@@ -3502,7 +3563,19 @@ struct MessageRow: View {
 
     @ViewBuilder
     private var content: some View {
-        if message.localImage != nil {
+        if ForwardedTranscript(raw: message.text).isRecord {
+            VStack(alignment: .leading, spacing: 4) {
+                if !message.fromBot && !mergedTop {
+                    Text(message.authorName).font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(blue).lineLimit(1).truncationMode(.tail)
+                }
+                ForwardedTranscriptCard(text: message.text)
+                HStack(spacing: 3) {
+                    Text(message.date, format: .dateTime.hour().minute()).font(.system(size: 11))
+                    if message.fromBot { statusIcon }
+                }.foregroundStyle(.secondary)
+            }
+        } else if message.localImage != nil {
             if let image = loadedImage {
                 let scale = min(min(220, bubbleMaxWidth) / max(image.size.width, 1), 280 / max(image.size.height, 1))
                 Image(uiImage: image).resizable().scaledToFit()
