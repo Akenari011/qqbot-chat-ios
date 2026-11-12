@@ -3115,8 +3115,14 @@ struct ImagePreview: View {
 }
 
 func isSameMessageGroup(_ a: ChatMessage, _ b: ChatMessage) -> Bool {
-    a.fromBot == b.fromBot
-        && a.authorName == b.authorName
+    let sameAuthor: Bool
+    if let first = a.authorID, !first.isEmpty, let second = b.authorID, !second.isEmpty {
+        sameAuthor = first == second
+    } else {
+        sameAuthor = a.authorName == b.authorName
+    }
+    return a.fromBot == b.fromBot && sameAuthor
+        && Calendar.current.isDate(a.date, inSameDayAs: b.date)
         && abs(a.date.timeIntervalSince(b.date)) < 600
 }
 
@@ -3389,8 +3395,10 @@ struct MessageRow: View {
     private var content: some View {
         if message.localImage != nil {
             if let image = loadedImage {
+                let scale = min(min(220, bubbleMaxWidth) / max(image.size.width, 1), 280 / max(image.size.height, 1))
                 Image(uiImage: image).resizable().scaledToFit()
-                    .frame(maxWidth: 220, maxHeight: 280)
+                    // An exact aspect-fit frame avoids centered blank space beside tall images.
+                    .frame(width: image.size.width * scale, height: image.size.height * scale)
                     .clipShape(RoundedRectangle(cornerRadius: 15))
                     .onTapGesture { onPreview(image) }
             } else {
@@ -3468,7 +3476,7 @@ struct MessageRow: View {
             .buttonStyle(.plain)
         } else {
             VStack(alignment: .leading, spacing: 3) {
-                if !message.fromBot {
+                if !message.fromBot && !mergedTop {
                     Text(message.authorName)
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(Color(red: 0, green: 0x88 / 255, blue: 1.0))
