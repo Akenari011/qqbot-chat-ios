@@ -2185,8 +2185,12 @@ struct ChatView: View {
                 .onChange(of: jumpTarget) { _, target in
                     if let target { withAnimation(TGAnim.scrollToMessage) { proxy.scrollTo(target, anchor: .top) }; jumpTarget = nil }
                 }
-                .onChange(of: conversation?.messages.count) { _, _ in
-                    withAnimation(TGAnim.scrollToMessage) { proxy.scrollTo("chatBottom", anchor: .bottom) }
+                .onChange(of: conversation?.messages.count) { oldCount, newCount in
+                    // Preserve the reading position for incoming messages and history loads.
+                    guard let oldCount, let newCount, newCount > oldCount else { return }
+                    let ownPendingMessage = conversation?.messages.last.map { $0.fromBot && $0.status == "sending" } ?? false
+                    guard !showScrollButton || ownPendingMessage else { return }
+                    withAnimation(TGAnim.scrollToBottom) { proxy.scrollTo("chatBottom", anchor: .bottom) }
                 }
                 .onChange(of: scrollTick) { _, _ in
                     withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo("chatBottom", anchor: .bottom) }
@@ -2221,7 +2225,8 @@ struct ChatView: View {
                     UserDefaults.standard.set(store.drafts, forKey: "drafts")
                     Task { await store.sendText(text, to: conversationID, quote: quote) }
                 },
-                onFocus: { scrollTick += 1 },
+                // Quoting an older message should not move the reader to the bottom.
+                onFocus: { if !showScrollButton { scrollTick += 1 } },
                 onCancelQuote: { quoting = nil },
                 focusTick: focusComposerTick
             )
