@@ -1230,15 +1230,23 @@ final class ChatStore {
         }
         let isGIF = data.starts(with: Data("GIF8".utf8))
         guard let payload = isGIF ? data : image.scaled(maxDimension: 1024).pngData() else { return "图片处理失败。" }
+        guard !payload.isEmpty, payload.count <= 10 * 1024 * 1024 else {
+            return "处理后的图片超过 10MB，请缩小后再添加。"
+        }
         let name = UUID().uuidString + (isGIF ? ".gif" : ".png")
+        let destination = stickersURL.appendingPathComponent(name)
         do {
             try FileManager.default.createDirectory(at: stickersURL, withIntermediateDirectories: true)
-            try payload.write(to: stickersURL.appendingPathComponent(name), options: .atomic)
+            try payload.write(to: destination, options: .atomic)
             let updated = stickers + [name]
             try JSONEncoder().encode(updated).write(to: stickerIndexURL, options: .atomic)
             stickers = updated
             return nil
-        } catch { return "表情包保存失败，请重试。" }
+        } catch {
+            // Roll back the image if committing its index failed.
+            try? FileManager.default.removeItem(at: destination)
+            return "表情包保存失败，请重试。"
+        }
     }
 
     func stickerImage(_ name: String) -> UIImage? {
