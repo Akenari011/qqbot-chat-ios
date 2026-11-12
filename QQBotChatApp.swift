@@ -7,6 +7,7 @@ import UIKit
 import AVKit
 import AVFoundation
 import UniformTypeIdentifiers
+import ImageIO
 
 @main
 struct QQBotChatApp: App {
@@ -3305,16 +3306,159 @@ struct ForwardedTranscriptCard: View {
     }
 }
 
+struct TranscriptEntry {
+    var author = ""
+    var content = ""
+    var attachments: [String] = []
+}
+
+extension ForwardedTranscript {
+    var entries: [TranscriptEntry] {
+        var result: [TranscriptEntry] = []
+        for line in raw.components(separatedBy: .newlines) {
+            if line.hasPrefix("=== 消息 ") { result.append(TranscriptEntry()); continue }
+            guard !result.isEmpty else { continue }
+            let index = result.count - 1
+            if line.hasPrefix("[发送者]") {
+                result[index].author = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+            } else if line.hasPrefix("[消息内容]") {
+                result[index].content = String(line.dropFirst(6)).trimmingCharacters(in: .whitespaces)
+            } else if line.hasPrefix("[附件"), line.contains("URL:") {
+                result[index].attachments.append(line)
+            } else if !line.isEmpty {
+                result[index].content += String(UnicodeScalar(10)) + line
+            }
+        }
+        return result
+    }
+}
+
+struct TranscriptAnimatedImage: UIViewRepresentable {
+    let image: UIImage
+    func makeUIView(context: Context) -> UIImageView {
+        let view = UIImageView()
+        view.contentMode = .scaleAspectFit
+        view.clipsToBounds = true
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        return view
+    }
+    func updateUIView(_ view: UIImageView, context: Context) {
+        if view.image !== image { view.image = image }
+    }
+}
+
+struct TranscriptAttachmentView: View {
+    let raw: String
+    @State private var image: UIImage?
+    @State private var videoURL: URL?
+    @State private var loading = false
+    @State private var failure: String?
+    @State private var playVideo = false
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let image {
+                TranscriptAnimatedImage(image: image)
+                    .frame(height: 240).frame(maxWidth: .infinity)
+                    .clipped().contentShape(Rectangle())
+            } else if videoURL != nil {
+                Button { playVideo = true } label: { Label("播放视频", systemImage: "play.circle.fill") }
+            } else {
+                Button { Task { await load() } } label: {
+                    Label(loading ? "正在加载附件…" : (failure == nil ? "加载图片 / 视频" : "加载失败，点此重试"), systemImage: "arrow.down.circle")
+                }.disabled(loading)
+            }
+            if let failure { Text(failure).font(.caption).foregroundStyle(.secondary) }
+        }
+        .fullScreenCover(isPresented: $playVideo) {
+            if let videoURL { VideoPlaybackScreen(url: videoURL) }
+        }
+        .onDisappear {
+            if !playVideo, let videoURL {
+                try? FileManager.default.removeItem(at: videoURL)
+                self.videoURL = nil
+            }
+        }
+    }
+    private func load() async {
+        guard !loading, let marker = raw.range(of: "URL:") else { return }
+        let address = String(raw[marker.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: address), url.scheme == "https",
+              let host = url.host?.lowercased(), host == "qq.com" || host.hasSuffix(".qq.com") || host.hasSuffix(".qq.com.cn") else {
+            failure = "附件地址不是受支持的 QQ HTTPS 下载地址。"
+            return
+        }
+        loading = true
+        failure = nil
+        defer { loading = false }
+        do {
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 45
+            let (temporary, response) = try await URLSession.shared.download(for: request)
+            defer { try? FileManager.default.removeItem(at: temporary) }
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw URLError(.badServerResponse) }
+            let size = try temporary.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+            guard size > 0, size <= 20 * 1024 * 1024 else {
+                failure = "附件为空或超过 20MB。"
+                return
+            }
+            let result = try await Task.detached(priority: .userInitiated) { () -> (UIImage?, URL?) in
+                let data = try Data(contentsOf: temporary)
+                if let source = CGImageSourceCreateWithData(data as CFData, nil) {
+                    let count = CGImageSourceGetCount(source)
+                    if count > 1 {
+                        guard count <= 120 else { throw URLError(.dataLengthExceedsMaximum) }
+                        var frames: [UIImage] = []
+                        var duration = 0.0
+                        for index in 0..<count {
+                            let options = [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: 480] as CFDictionary
+                            guard let cg = CGImageSourceCreateThumbnailAtIndex(source, index, options) else { continue }
+                            frames.append(UIImage(cgImage: cg))
+                            let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [String: Any]
+                            let gif = properties?[kCGImagePropertyGIFDictionary as String] as? [String: Any]
+                            let delay = gif?[kCGImagePropertyGIFUnclampedDelayTime as String] as? Double ?? gif?[kCGImagePropertyGIFDelayTime as String] as? Double ?? 0.1
+                            duration += max(0.02, delay)
+                        }
+                        guard !frames.isEmpty else { throw URLError(.cannotDecodeContentData) }
+                        return (UIImage.animatedImage(with: frames, duration: duration), nil)
+                    }
+                    guard let decoded = UIImage(data: data) else { throw URLError(.cannotDecodeContentData) }
+                    return (decoded.preparingThumbnail(of: CGSize(width: 900, height: 900)) ?? decoded, nil)
+                }
+                let mime = response.mimeType ?? ""
+                guard mime.hasPrefix("video/") || data.dropFirst(4).starts(with: Data("ftyp".utf8)) else { throw URLError(.cannotDecodeContentData) }
+                let directory = FileManager.default.temporaryDirectory.appendingPathComponent("transcript-media", isDirectory: true)
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                let destination = directory.appendingPathComponent(UUID().uuidString + ".mp4")
+                try data.write(to: destination, options: .atomic)
+                return (nil, destination)
+            }.value
+            image = result.0
+            videoURL = result.1
+        } catch { failure = "附件无法加载：链接可能已过期、网络不可用，或媒体格式/大小不受支持。" }
+    }
+}
+
 struct ForwardedTranscriptDetail: View {
     let text: String
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         NavigationStack {
             ScrollView {
-                Text(text).font(.system(size: 16))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(16)
+                LazyVStack(alignment: .leading, spacing: 16) {
+                    ForEach(Array(ForwardedTranscript(raw: text).entries.enumerated()), id: \.offset) { _, entry in
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(entry.author).font(.headline).foregroundStyle(.blue)
+                            Text(entry.content).font(.system(size: 16)).textSelection(.enabled)
+                            ForEach(Array(entry.attachments.enumerated()), id: \.offset) { _, attachment in
+                                TranscriptAttachmentView(raw: attachment)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(12)
+                        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+                    }
+                    DisclosureGroup("原始记录") { Text(text).font(.footnote).textSelection(.enabled) }
+                }.padding(16)
             }
             .navigationTitle("聊天记录").navigationBarTitleDisplayMode(.inline)
             .toolbar {
