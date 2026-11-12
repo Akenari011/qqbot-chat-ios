@@ -2,6 +2,7 @@ import SwiftUI
 import Observation
 import Security
 import PhotosUI
+import Photos
 import Network
 import UIKit
 import AVKit
@@ -376,6 +377,7 @@ final class ChatStore {
     }
 
     func loadReactionUsers(conversationID: String, messageID: String) async {
+        reactionUsers = []
         guard conversation(conversationID)?.scene == "channel" else { return }
         let cid = conversationID.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? conversationID
         do {
@@ -451,6 +453,7 @@ final class ChatStore {
     }
 
     func loadPins(conversationID: String) async {
+        pins = []
         guard conversation(conversationID)?.scene == "channel" else { return }
         let cid = conversationID.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? conversationID
         do {
@@ -500,6 +503,7 @@ final class ChatStore {
     }
 
     func loadSchedules(channelID: String) async {
+        schedules = []
         let cid = channelID.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? channelID
         do {
             let raw = try await apiAny("/channels/" + cid + "/schedules")
@@ -1148,11 +1152,11 @@ final class ChatStore {
         saveConversations()
     }
 
-    func fetchGroupInfoIfNeeded(_ id: String) async {
+    func fetchGroupInfoIfNeeded(_ id: String, force: Bool = false) async {
         guard let index = conversations.firstIndex(where: { $0.id == id }),
               conversations[index].scene == "group",
-              conversations[index].remark?.isEmpty ?? true else { return }
-        guard conversations[index].name.hasPrefix("群聊 ") else { return }
+              force || (conversations[index].remark?.isEmpty ?? true) else { return }
+        guard force || conversations[index].name.hasPrefix("群聊 ") else { return }
         let encoded = id.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? id
         do {
             let result = try await apiAny("/v2/groups/" + encoded + "/info")
@@ -1301,8 +1305,29 @@ final class ChatStore {
         await send(to: id, text: "", mediaFile: name, mediaType: "audio", quote: quote, duration: duration)
     }
 
+    func savePhotoToLibrary(_ image: UIImage) {
+        PHPhotoLibrary.shared().performChanges {
+            PHAssetChangeRequest.creationRequestForAsset(from: image)
+        } completionHandler: { success, _ in
+            Task { @MainActor in
+                self.error = success ? "图片已保存到相册。" : "保存图片失败，请检查照片添加权限。"
+            }
+        }
+    }
+
+    func saveVideoToLibrary(_ url: URL) {
+        PHPhotoLibrary.shared().performChanges {
+            PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)
+        } completionHandler: { success, _ in
+            Task { @MainActor in
+                self.error = success ? "视频已保存到相册。" : "保存视频失败，请检查照片添加权限和视频格式。"
+            }
+        }
+    }
+
     func sendFile(_ data: Data, name: String, to id: String) async {
-        guard data.count <= 20 * 1024 * 1024 else { error = "文件不能超过 20MB。"; return }
+        guard conversation(id)?.scene != "channel" else { error = "当前文件直传仅适用于单聊和群聊，频道文件发送尚未接入。"; return }
+        guard !data.isEmpty, data.count <= 5 * 1024 * 1024 else { error = "当前文件直传仅支持 5MB 以内的非空文件，暂未接入大文件分片上传。"; return }
         let ext = (name as NSString).pathExtension
         guard let saved = saveMedia(data, ext: ext.isEmpty ? "bin" : ext) else { error = "文件保存失败。"; return }
         await send(to: id, text: "", mediaFile: saved, mediaType: "file", quote: nil, displayName: name)
@@ -1346,6 +1371,7 @@ final class ChatStore {
             body["msg_seq"] = conversation.replySeq + 1
         }
         if let quote { body["message_reference"] = ["message_id": quote.id] }
+        var directFileResponse: [String: Any]?
         if let mediaFile, let mediaType {
             guard let fileURL = mediaURL(named: mediaFile), let data = try? Data(contentsOf: fileURL), !data.isEmpty else {
                 if let current = conversations.firstIndex(where: { $0.id == id }),
@@ -1366,15 +1392,27 @@ final class ChatStore {
             }
             let uploadName = mediaType == "file" ? (displayName ?? "file.bin") : "media." + ext
             do {
-                let info = try await uploadMedia(data, fileType: type, fileName: uploadName, target: id, scene: conversation.scene)
-                body["msg_type"] = 7
-                body["content"] = ""
-                body["media"] = ["file_info": info]
+                if mediaType == "file" {
+                    guard conversation.scene == "group" || conversation.scene == "c2c", data.count <= 5 * 1024 * 1024 else { throw URLError(.unsupportedURL) }
+                    let encoded = id.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? id
+                    let prefix = conversation.scene == "c2c" ? "/v2/users/" : "/v2/groups/"
+                    let response = try await api(prefix + encoded + "/files", body: [
+                        "file_type": 4, "file_data": data.base64EncodedString(),
+                        "file_name": uploadName, "srv_send_msg": true
+                    ])
+                    guard let messageID = response["id"] as? String, !messageID.isEmpty else { throw URLError(.badServerResponse) }
+                    directFileResponse = response
+                } else {
+                    let info = try await uploadMedia(data, fileType: type, fileName: uploadName, target: id, scene: conversation.scene)
+                    body["msg_type"] = 7
+                    body["content"] = ""
+                    body["media"] = ["file_info": info]
+                }
             } catch {
                 switch mediaType {
                 case "video": self.error = "视频上传失败，请确认小于 20MB 且机器人有富媒体权限。"
                 case "audio": self.error = "语音上传失败，QQ 语音消息可能只接受 silk 编码。"
-                case "file": self.error = "文件上传失败，请确认小于 20MB 且机器人有文件权限。"
+                case "file": self.error = "文件上传失败，请确认小于 5MB 且机器人有文件权限。"
                 default: self.error = "图片上传失败，请确认小于 10MB 且机器人有富媒体权限。"
                 }
                 if let current = conversations.firstIndex(where: { $0.id == id }),
@@ -1396,7 +1434,12 @@ final class ChatStore {
             case "c2c": path = "/v2/users/"
             default: path = "/v2/groups/"
             }
-            let result = try await api(path + encoded + "/messages", body: body)
+            let result: [String: Any]
+            if let directFileResponse {
+                result = directFileResponse
+            } else {
+                result = try await api(path + encoded + "/messages", body: body)
+            }
             guard let messageID = result["id"] as? String else { throw URLError(.badServerResponse) }
             log("发送成功 type=" + (mediaType ?? "text") + " id=" + String(messageID.suffix(8)) + " content=" + String(text.prefix(40)))
             error = nil
@@ -1408,7 +1451,7 @@ final class ChatStore {
                     authorName: old.authorName, localImage: old.localImage, videoFile: old.videoFile,
                     audioFile: old.audioFile, fileLocal: old.fileLocal, fileName: old.fileName,
                     quotedText: old.quotedText, quotedID: old.quotedID, duration: old.duration,
-                    buttons: old.buttons, status: "sent"
+                    buttons: old.buttons, status: mediaType == "file" ? "accepted" : "sent"
                 )
                 conversations[current].replySeq += 1
                 saveConversations()
@@ -1425,6 +1468,7 @@ final class ChatStore {
     }
 
     private func uploadMedia(_ data: Data, fileType: Int, fileName: String, target: String, scene: String) async throws -> String {
+        guard data.count <= 5 * 1024 * 1024 else { throw URLError(.dataLengthExceedsMaximum) }
         let encoded = target.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? target
         let path: String
         switch scene {
@@ -1606,7 +1650,7 @@ struct ConversationListView: View {
     let store: ChatStore
     @State private var showSettings = false
     @State private var showComposeHint = false
-    @State private var editMode = false
+    @State private var editMode: EditMode = .inactive
     @State private var query = ""
     private let blue = TGColor.accent
 
@@ -1655,7 +1699,12 @@ struct ConversationListView: View {
                                     .tint(Color(red: 0xbc / 255, green: 0xbc / 255, blue: 0xc3 / 255))
                             }
                         }
+                        .onDelete { offsets in
+                            let ids = offsets.map { filtered[$0].id }
+                            for id in ids { store.deleteConversation(id) }
+                        }
                     }
+                    .environment(\.editMode, $editMode)
                     .listStyle(.plain)
                 }
             }
@@ -1667,15 +1716,17 @@ struct ConversationListView: View {
                     Text("聊天").font(.system(size: 17, weight: .semibold)).monospacedDigit()
                 }
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button(editMode ? "完成" : "编辑") { editMode.toggle() }
+                    Button(editMode == .active ? "完成" : "编辑") {
+                        withAnimation(.easeInOut(duration: 0.2)) { editMode = editMode == .active ? .inactive : .active }
+                    }
                         .frame(height: 44)
                         .background(.ultraThinMaterial, in: Capsule())
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button { showComposeHint = true } label: { Image(systemName: "square.and.pencil") }
+                    Button { showSettings = true } label: { Image(systemName: "gearshape") }
                         .frame(width: 44, height: 44)
                         .background(.ultraThinMaterial, in: Capsule())
-                        .accessibilityLabel("新建消息")
+                        .accessibilityLabel("设置")
                 }
             }
             .navigationDestination(for: String.self) { id in
@@ -1869,7 +1920,12 @@ struct ChatView: View {
             conversationID: conversationID,
             message: message,
             onQuote: handleQuote,
-            onJump: { target in withAnimation { proxy.scrollTo(target, anchor: .center) } },
+            onJump: { target in
+                if let position = conversation?.messages.firstIndex(where: { $0.id == target }), let total = conversation?.messages.count {
+                    renderLimit = max(renderLimit, total - position)
+                    jumpTarget = target
+                }
+            },
             onPreview: handlePreview,
             onEdit: handleEdit,
             onReactionUsers: handleReactionUsers,
@@ -1967,7 +2023,7 @@ struct ChatView: View {
                     Button { showChatSearch = true } label: { Label("搜索", systemImage: "magnifyingglass") }
                     Button { showProfileEditor = true } label: { Label("设置备注与头像", systemImage: "pencil.circle") }
                     if conversation?.scene == "group" {
-                        Button { Task { await store.fetchGroupInfoIfNeeded(conversationID) } } label: { Label("重新获取群名称", systemImage: "arrow.clockwise") }
+                        Button { Task { await store.fetchGroupInfoIfNeeded(conversationID, force: true) } } label: { Label("重新获取群名称", systemImage: "arrow.clockwise") }
                     }
                     if conversation?.scene == "channel" {
                         Button { showSchedules = true } label: { Label("频道日程", systemImage: "calendar") }
@@ -2012,14 +2068,12 @@ struct ChatView: View {
             }
             if let name = message.localImage, let image = store.image(named: name) {
                 Button("保存图片") {
-                    UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
-                    store.error = "图片已保存到相册。"
+                    store.savePhotoToLibrary(image)
                 }
             }
             if let name = message.videoFile, let url = store.mediaURL(named: name) {
                 Button("保存视频") {
-                    UISaveVideoAtPathToSavedPhotosAlbum(url.path, nil, nil, nil)
-                    store.error = "视频已保存到相册。"
+                    store.saveVideoToLibrary(url)
                 }
             }
             if store.conversation(conversationID)?.scene == "channel" {
@@ -2138,6 +2192,9 @@ struct ChatView: View {
             NavigationStack {
                 List(searchResults, id: \.id) { message in
                     Button {
+                        if let position = conversation?.messages.firstIndex(where: { $0.id == message.id }), let total = conversation?.messages.count {
+                            renderLimit = max(renderLimit, total - position)
+                        }
                         jumpTarget = message.id
                         showChatSearch = false
                     } label: {
@@ -2186,11 +2243,11 @@ struct ChatView: View {
                                 let access = url.startAccessingSecurityScopedResource()
                                 defer { if access { url.stopAccessingSecurityScopedResource() } }
                                 let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-                                guard size <= 20 * 1024 * 1024 else { throw CocoaError(.fileReadTooLarge) }
+                                guard size <= 5 * 1024 * 1024 else { throw CocoaError(.fileReadTooLarge) }
                                 return try Data(contentsOf: url)
                             }.value
                             await store.sendFile(data, name: url.lastPathComponent, to: conversationID)
-                        } catch { store.error = "文件读取失败，请确认已下载到本机且不超过 20MB。" }
+                        } catch { store.error = "文件读取失败，请确认已下载到本机且不超过 5MB。" }
                     }
                 case .failure:
                     store.error = "无法选择此文件，请重试。"
@@ -2330,13 +2387,15 @@ struct ChatView: View {
                         .padding(.trailing, 14).padding(.bottom, 10)
                     }
                 }
-                .refreshable {
-                    if conversation?.scene == "channel" {
-                        await store.fetchHistory(conversationID: conversationID)
-                    }
-                }
+
                 .onChange(of: jumpTarget) { _, target in
-                    if let target { withAnimation(TGAnim.scrollToMessage) { proxy.scrollTo(target, anchor: .top) }; jumpTarget = nil }
+                    if let target {
+                        Task { @MainActor in
+                            await Task.yield()
+                            withAnimation(TGAnim.scrollToMessage) { proxy.scrollTo(target, anchor: .center) }
+                            jumpTarget = nil
+                        }
+                    }
                 }
                 .onChange(of: conversation?.messages.count) { oldCount, newCount in
                     // Preserve the reading position for incoming messages and history loads.
@@ -2978,12 +3037,14 @@ struct ComposerInput: View {
                     Menu {
                         Button { showPhotoPicker = true } label: { Label("照片", systemImage: "photo.on.rectangle") }
                         Button { showVideoPicker = true } label: { Label("视频", systemImage: "video") }
-                        Button { showFileImporter = true } label: { Label("文件", systemImage: "doc") }
+                        if store.conversation(conversationID)?.scene != "channel" {
+                            Button { showFileImporter = true } label: { Label("文件（最多 5MB）", systemImage: "doc") }
+                        }
                         Button { onToggleRecording() } label: {
                             Label(recording ? "停止录音" : "录制语音", systemImage: recording ? "stop.circle" : "mic")
                         }
                         if store.conversation(conversationID)?.scene == "group" {
-                            Button { showMentions = true } label: { Label("提及成员", systemImage: "at") }
+                            Button { showMentions = true } label: { Label("插入成员姓名", systemImage: "at") }
                         }
                     } label: {
                         Image(systemName: "paperclip")
@@ -3094,7 +3155,7 @@ struct ComposerInput: View {
                 .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("完成") { showMentions = false } } }
             }
         }
-        .animation(.easeInOut(duration: 0.1), value: text)
+        // Animate only the send control, not the entire composer for every keystroke.
         .onChange(of: isFocused) { _, value in
             if value { onFocus() }
         }
@@ -3226,8 +3287,8 @@ enum TGColor {
 // It is an overdamped bezier, NOT a bouncy spring (CAAnimationUtils.swift:186).
 enum TGAnim {
     static let springCurve = Animation.timingCurve(0.380, 0.700, 0.125, 1.000, duration: 0.4)
-    static let scrollToBottom = Animation.spring(duration: 1.15, bounce: 0.0)
-    static let scrollToMessage = Animation.spring(duration: 0.4, bounce: 0.0)
+    static let scrollToBottom = Animation.easeOut(duration: 0.25)
+    static let scrollToMessage = Animation.easeOut(duration: 0.25)
     static let sendVertical = Animation.timingCurve(0.199, 0.011, 0.279, 0.910, duration: 0.3)
 }
 
@@ -3653,10 +3714,10 @@ struct MessageRow: View {
                 Button { Task { await store.retryMessage(conversationID: conversationID, messageID: message.id) } } label: { Label("重发", systemImage: "arrow.clockwise") }
             }
             if let image = loadedImage {
-                Button { UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil); store.error = "图片已保存到相册。" } label: { Label("保存图片", systemImage: "square.and.arrow.down") }
+                Button { store.savePhotoToLibrary(image) } label: { Label("保存图片", systemImage: "square.and.arrow.down") }
             }
             if let name = message.videoFile, let url = store.mediaURL(named: name) {
-                Button { UISaveVideoAtPathToSavedPhotosAlbum(url.path, nil, nil, nil); store.error = "视频已保存到相册。" } label: { Label("保存视频", systemImage: "square.and.arrow.down") }
+                Button { store.saveVideoToLibrary(url) } label: { Label("保存视频", systemImage: "square.and.arrow.down") }
             }
             if message.fromBot && message.status == "sent" {
                 Button {
@@ -3782,7 +3843,11 @@ struct MessageRow: View {
                     Image(systemName: "doc.fill").font(.system(size: 24)).foregroundStyle(blue)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(message.fileName ?? "文件").font(.system(size: 14, weight: .medium)).lineLimit(1)
-                        Text("点击打开或分享").font(.system(size: 11)).foregroundStyle(.secondary)
+                        Text("点击分享本地文件").font(.system(size: 11)).foregroundStyle(.secondary)
+                        if message.fromBot {
+                            Text(message.status == "sending" ? "正在发送" : (message.status == "failed" ? "发送失败" : "平台已受理，送达待确认"))
+                                .font(.system(size: 11)).foregroundStyle(message.status == "failed" ? Color.red : Color.secondary)
+                        }
                     }
                 }
                 .padding(.top, 15).padding(.leading, 9).padding(.bottom, 15).padding(.trailing, 12)
