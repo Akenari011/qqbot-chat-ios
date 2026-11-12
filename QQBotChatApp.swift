@@ -525,7 +525,12 @@ final class ChatStore {
     }
 
     func recallMessage(conversationID: String, messageID: String) async {
-        guard let conversation = conversation(conversationID) else { return }
+        guard let conversation = conversation(conversationID),
+              let message = conversation.messages.first(where: { $0.id == messageID }) else { return }
+        guard message.fromBot, message.status == "sent" else {
+            error = "仅能撤回 QQ 接口已确认发送成功的机器人消息。"
+            return
+        }
         let encoded = conversationID.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? conversationID
         let path: String
         switch conversation.scene {
@@ -1934,7 +1939,9 @@ struct ChatView: View {
                     showReactionUsers = true
                     Task { await store.loadReactionUsers(conversationID: conversationID, messageID: message.id) }
                 }
-                Button("撤回") { Task { await store.recallMessage(conversationID: conversationID, messageID: message.id) } }
+                if message.fromBot && message.status == "sent" {
+                    Button("撤回") { Task { await store.recallMessage(conversationID: conversationID, messageID: message.id) } }
+                }
             }
             Button("删除", role: .destructive) { store.deleteMessage(conversationID: conversationID, messageID: message.id) }
             Button("取消", role: .cancel) { menuMessage = nil }
@@ -2686,7 +2693,7 @@ struct MessageRow: View {
             if let name = message.videoFile, let url = store.mediaURL(named: name) {
                 Button { UISaveVideoAtPathToSavedPhotosAlbum(url.path, nil, nil, nil); store.error = "视频已保存到相册。" } label: { Label("保存视频", systemImage: "square.and.arrow.down") }
             }
-            if message.fromBot && message.status != "failed" {
+            if message.fromBot && message.status == "sent" {
                 Button {
                     Task { await store.recallMessage(conversationID: conversationID, messageID: message.id) }
                 } label: { Label("撤回（2 分钟内）", systemImage: "arrow.uturn.backward") }
@@ -2703,7 +2710,7 @@ struct MessageRow: View {
                     Button { Task { await store.publishAnnounce(conversationID: conversationID, messageID: message.id) } } label: { Label("设为公告", systemImage: "megaphone") }
                     Button { Task { await store.deleteAnnounce(conversationID: conversationID, messageID: message.id) } } label: { Label("取消公告", systemImage: "megaphone.slash") }
                     Button { onReactionUsers(message.id) } label: { Label("点赞用户", systemImage: "person.2") }
-                    Button { Task { await store.recallMessage(conversationID: conversationID, messageID: message.id) } } label: { Label("撤回", systemImage: "arrow.uturn.backward") }
+
                 }
             }
             Button(role: .destructive) { store.deleteMessage(conversationID: conversationID, messageID: message.id) } label: { Label("删除", systemImage: "trash") }
