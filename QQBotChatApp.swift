@@ -1985,7 +1985,9 @@ struct ChatView: View {
         }
     }
 
-    var body: some View {
+    var body: some View { chatWithSecondarySheets }
+
+    private var chatPrimaryContent: some View {
         VStack(spacing: 0) {
             if let error = store.error {
                 HStack(spacing: 8) {
@@ -2124,6 +2126,10 @@ struct ChatView: View {
         .sheet(isPresented: $showProfileEditor) {
             profileEditorContent
         }
+    }
+
+    private var chatWithSecondarySheets: some View {
+        chatPrimaryContent
         .sheet(isPresented: $showForwardPicker) {
             NavigationStack {
                 List(store.conversations.filter { $0.id != conversationID }) { conversation in
