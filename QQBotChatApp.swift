@@ -311,6 +311,9 @@ final class ChatStore {
             if let index = conversations.firstIndex(where: { $0.id == conversationID }),
                let mi = conversations[index].messages.firstIndex(where: { $0.id == messageID }) {
                 conversations[index].messages[mi].text = newText
+                if let last = conversations[index].messages.last, last.id == messageID {
+                    conversations[index].lastText = last.summary
+                }
                 saveConversations()
             }
             error = nil
@@ -1428,6 +1431,10 @@ final class ChatStore {
         if let last = conversations[index].messages.last {
             conversations[index].lastText = last.summary
             conversations[index].lastTimestamp = last.timestamp
+        } else {
+            // Keep the conversation position, but do not expose deleted message content.
+            conversations[index].lastText = ""
+            conversations[index].unread = 0
         }
         saveConversations()
     }
