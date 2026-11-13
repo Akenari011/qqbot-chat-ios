@@ -1510,9 +1510,16 @@ final class ChatStore {
         sortConversations()
     }
 
+    private static let persistenceQueue = DispatchQueue(label: "qqbot.conversations.persistence", qos: .utility)
+
     private func saveConversations() {
-        guard let data = try? JSONEncoder().encode(conversations) else { return }
-        try? data.write(to: stateURL, options: .atomic)
+        // Copy-on-write snapshot: JSON encoding and disk IO must not block navigation.
+        let snapshot = conversations
+        let destination = stateURL
+        Self.persistenceQueue.async {
+            guard let data = try? JSONEncoder().encode(snapshot) else { return }
+            try? data.write(to: destination, options: .atomic)
+        }
     }
 
     private func retryFirstFailedMessage() {
@@ -1568,7 +1575,8 @@ final class ChatStore {
 
     func clearHistory() {
         conversations = []
-        try? FileManager.default.removeItem(at: stateURL)
+        // Serialize the empty state after pending writes so cleared history cannot reappear.
+        saveConversations()
         try? FileManager.default.removeItem(at: imagesURL)
         try? FileManager.default.createDirectory(at: imagesURL, withIntermediateDirectories: true)
     }
@@ -1882,7 +1890,7 @@ struct ChatView: View {
     @State private var resetAvatarDraft = false
     @State private var confirmClearChat = false
     @State private var scrollTick = 0
-    @State private var renderLimit = 100
+    @State private var renderLimit = 30
     @State private var showScrollButton = false
     @State private var showPins = false
     @State private var showKeyboardAlert = false
@@ -2403,7 +2411,8 @@ struct ChatView: View {
     }
 
     private var messageList: some View {
-        GeometryReader { listGeo in
+        let visible = visibleMessages
+        return GeometryReader { listGeo in
             let availableWidth = listGeo.size.width - 24
             ScrollViewReader { proxy in
                 ScrollView {
@@ -2419,8 +2428,8 @@ struct ChatView: View {
                                     .font(.system(size: 13)).foregroundStyle(.secondary)
                                     .padding(.top, 40)
                             }
-                            ForEach(Array(visibleMessages.enumerated()), id: \.element.id) { index, _ in
-                                messageCell(visible: visibleMessages, index: index, proxy: proxy, availableWidth: availableWidth)
+                            ForEach(Array(visible.enumerated()), id: \.element.id) { index, _ in
+                                messageCell(visible: visible, index: index, proxy: proxy, availableWidth: availableWidth)
                             }
                         }
                         Color.clear.frame(height: 1).id("chatBottom")
