@@ -77,12 +77,6 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     var date: Date { Self.timestampParser.date(from: timestamp) ?? .now }
 }
 
-struct ChannelInfo: Identifiable {
-    let id: String
-    let name: String
-    let type: Int
-}
-
 struct GuildInfo: Identifiable {
     let id: String
     let name: String
@@ -150,9 +144,7 @@ final class ChatStore {
     var botID = ""
     var guilds: [GuildInfo] = []
     var guildMembers: [String: [String]] = [:]
-    var guildChannels: [String: [ChannelInfo]] = [:]
-    var guildListLoading = false
-    var guildListError: String?
+    var guildChannels: [String: [String]] = [:]
     var schedules: [String] = []
     var pins: [String] = []
     var reactionUsers: [String] = []
@@ -271,19 +263,15 @@ final class ChatStore {
     }
 
     func loadGuilds() async {
-        guard !guildListLoading else { return }
-        guildListLoading = true
-        guildListError = nil
-        defer { guildListLoading = false }
         do {
             let raw = try await apiAny("/users/@me/guilds")
-            guard let list = raw as? [[String: Any]] else { throw URLError(.cannotParseResponse) }
+            guard let list = raw as? [[String: Any]] else { return }
             guilds = list.compactMap { item in
                 guard let id = item["id"] as? String, let name = item["name"] as? String else { return nil }
                 return GuildInfo(id: id, name: name)
             }
         } catch {
-            guildListError = "频道列表获取失败，请检查网络、频道权限和机器人加入状态。"
+            self.error = "频道列表获取失败，机器人可能未加入任何频道。"
         }
     }
 
@@ -292,19 +280,12 @@ final class ChatStore {
             let raw = try await apiAny("/guilds/" + guildID + "/channels")
             guard let list = raw as? [[String: Any]] else { return }
             guildChannels[guildID] = list.compactMap { item in
-                guard let id = item["id"] as? String, let name = item["name"] as? String else { return nil }
-                return ChannelInfo(id: id, name: name, type: item["type"] as? Int ?? -1)
+                guard let name = item["name"] as? String else { return nil }
+                return name
             }
         } catch {
             self.error = "子频道获取失败，可能需要频道权限。"
         }
-    }
-
-    func openChannel(_ channel: ChannelInfo) {
-        guard !conversations.contains(where: { $0.id == channel.id }) else { return }
-        conversations.append(Conversation(id: channel.id, scene: "channel", name: channel.name, lastText: "", lastTimestamp: ISO8601DateFormatter().string(from: .now), unread: 0, messages: [], replyID: "", replySeq: 0))
-        sortConversations()
-        saveConversations()
     }
 
     func loadMembers(guildID: String) async {
@@ -313,8 +294,7 @@ final class ChatStore {
             let raw = try await apiAny("/guilds/" + encoded + "/members?limit=100")
             guard let list = raw as? [[String: Any]] else { return }
             guildMembers[guildID] = list.compactMap { item in
-                let user = item["user"] as? [String: Any] ?? [:]
-                return (item["nick"] as? String) ?? (user["username"] as? String) ?? (item["username"] as? String)
+                (item["username"] as? String) ?? (item["nick"] as? String)
             }
         } catch {
             self.error = "成员列表获取失败，需要频道成员查看权限。"
@@ -1625,22 +1605,16 @@ extension UIImage {
 
 struct RootView: View {
     @State private var store = ChatStore()
-    @State private var selectedPage = 1
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
             if store.isLoggedIn {
-                TabView(selection: $selectedPage) {
-                    NavigationStack { GuildListView(store: store) }
-                        .tabItem { Label("频道", systemImage: "antenna.radiowaves.left.and.right") }
-                        .tag(0)
-                    ConversationListView(store: store, onSwipeToChannels: { selectedPage = 0 })
+                TabView {
+                    ConversationListView(store: store)
                         .tabItem { Label("聊天", systemImage: "bubble.left.and.bubble.right.fill") }
-                        .tag(1)
                     SettingsView(store: store, isTab: true)
                         .tabItem { Label("设置", systemImage: "gearshape.fill") }
-                        .tag(2)
                 }
                 .tabBarMinimizeBehavior(.onScrollDown)
             } else {
@@ -1706,8 +1680,6 @@ struct LoginView: View {
 
 struct ConversationListView: View {
     let store: ChatStore
-    var onSwipeToChannels: () -> Void = {}
-    @State private var navigationPath: [String] = []
     @State private var showSettings = false
     @State private var showComposeHint = false
     @State private var editMode: EditMode = .inactive
@@ -1727,7 +1699,7 @@ struct ConversationListView: View {
     }
 
     var body: some View {
-        NavigationStack(path: $navigationPath) {
+        NavigationStack {
             Group {
                 if store.conversations.isEmpty {
                     ContentUnavailableView {
@@ -1768,11 +1740,6 @@ struct ConversationListView: View {
                     .listStyle(.plain)
                 }
             }
-            .simultaneousGesture(DragGesture(minimumDistance: 60).onEnded { value in
-                guard navigationPath.isEmpty, editMode != .active, value.startLocation.x < 44,
-                      value.translation.width > 90, abs(value.translation.width) > abs(value.translation.height) * 1.5 else { return }
-                onSwipeToChannels()
-            })
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "搜索")
             .navigationTitle("聊天")
             .navigationBarTitleDisplayMode(.inline)
@@ -4123,30 +4090,14 @@ struct GuildListView: View {
 
     var body: some View {
         List {
-            if let error = store.error {
-                Text(error).font(.footnote).foregroundStyle(.red)
-                Button("关闭提示") { store.error = nil }
-            }
-            if store.guildListLoading { ProgressView("正在加载频道…") }
-            if let error = store.guildListError {
-                Text(error).foregroundStyle(.red)
-                Button("重试") { Task { await store.loadGuilds() } }
-            } else if !store.guildListLoading && store.guilds.isEmpty {
-                Text("机器人尚无可访问的频道。").foregroundStyle(.secondary)
+            if store.guilds.isEmpty {
+                Text("机器人未加入频道，或没有频道列表权限。").foregroundStyle(.secondary)
             }
             ForEach(store.guilds) { guild in
                 Section(guild.name) {
                     if let channels = store.guildChannels[guild.id] {
-                        if channels.isEmpty { Text("没有可访问的子频道").foregroundStyle(.secondary) }
-                        ForEach(channels) { channel in
-                            if channel.type == 0 {
-                                NavigationLink {
-                                    ChatView(store: store, conversationID: channel.id)
-                                        .task { store.openChannel(channel); await store.fetchHistory(conversationID: channel.id) }
-                                } label: { Label(channel.name, systemImage: "number") }
-                            } else {
-                                Label(channel.name + "（非文字频道）", systemImage: "rectangle.stack").foregroundStyle(.secondary)
-                            }
+                        ForEach(channels, id: \.self) { name in
+                            Label(name, systemImage: "bubble.left.and.bubble.right")
                         }
                     } else {
                         Button("加载子频道") {
@@ -4241,8 +4192,7 @@ struct SettingsView: View {
                     }
                 }
                 Section("频道") {
-                    Text("频道列表已移至底部“频道”页面，也可在聊天首页从左边缘右滑打开。")
-                        .font(.footnote).foregroundStyle(.secondary)
+                    NavigationLink("频道列表") { GuildListView(store: store) }
                 }
                 Section("数据") {
                     Button("清空全部聊天记录", role: .destructive) { confirmClear = true }

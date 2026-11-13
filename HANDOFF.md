@@ -81,6 +81,8 @@
 
 ## iOS 维护记录
 
+- 按用户要求撤销本轮两次频道修改（6b0ac31、e26c8b5 的源码差异）：底部恢复聊天/设置，频道入口恢复设置内列表，取消首页右滑切频道与最新子频道导航/成员解析改动。保留9f1c4a4历史性能与e36baf6凭据保存修复。下方频道测试与导航记录为历史结果，不代表回退后版本能力。重新构建并替换同一预发布版本。
+
 - 频道发布前检查：修复子频道仅保存名称、无法进入聊天的问题，改保留 id/name/type，文字频道进入 ChatView 并拉历史；成员列表解析 user.username，补频道 loading/error/retry 与空态。用户 Mac 模拟器与 iPhone Release 编译通过。真实UI已加载服务器与子频道（cells3→13），成员接口显示权限不足；文字频道进入最终回归待结果，发送和管理未测。发布须依据最终回归，不把编译或Tab切换作为完整频道通过。
 
 - 登录持久化维护：Keychain 保存改为优先 SecItemUpdate，不存在时 SecItemAdd，避免先删旧凭据；检查 OSStatus，保存失败明确提示且只记录错误码。原模拟器构建完全未签名，本轮给测试产物添加本地 ad-hoc 签名和 Keychain entitlements，不改正式 IPA 签名策略。用户 Mac Xcode26.5 编译通过；真实 XCUI 恢复测试1例0失败、16.797秒，验证已登录→terminate→launch→聊天/频道/设置存在且无密码框，Booted+hidden守卫21轮通过。首轮设备Shutdown前置失败不计恢复结论。签名与代码同时调整，不能归因单独代码修复；真机重签环境仍需验证。详见 deliverables/mac-login-persistence-test.md。
