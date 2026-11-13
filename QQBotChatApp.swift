@@ -1589,16 +1589,22 @@ extension UIImage {
 
 struct RootView: View {
     @State private var store = ChatStore()
+    @State private var selectedPage = 1
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
             if store.isLoggedIn {
-                TabView {
-                    ConversationListView(store: store)
+                TabView(selection: $selectedPage) {
+                    NavigationStack { GuildListView(store: store) }
+                        .tabItem { Label("频道", systemImage: "antenna.radiowaves.left.and.right") }
+                        .tag(0)
+                    ConversationListView(store: store, onSwipeToChannels: { selectedPage = 0 })
                         .tabItem { Label("聊天", systemImage: "bubble.left.and.bubble.right.fill") }
+                        .tag(1)
                     SettingsView(store: store, isTab: true)
                         .tabItem { Label("设置", systemImage: "gearshape.fill") }
+                        .tag(2)
                 }
                 .tabBarMinimizeBehavior(.onScrollDown)
             } else {
@@ -1664,6 +1670,8 @@ struct LoginView: View {
 
 struct ConversationListView: View {
     let store: ChatStore
+    var onSwipeToChannels: () -> Void = {}
+    @State private var navigationPath: [String] = []
     @State private var showSettings = false
     @State private var showComposeHint = false
     @State private var editMode: EditMode = .inactive
@@ -1683,7 +1691,7 @@ struct ConversationListView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navigationPath) {
             Group {
                 if store.conversations.isEmpty {
                     ContentUnavailableView {
@@ -1724,6 +1732,11 @@ struct ConversationListView: View {
                     .listStyle(.plain)
                 }
             }
+            .simultaneousGesture(DragGesture(minimumDistance: 60).onEnded { value in
+                guard navigationPath.isEmpty, editMode != .active, value.startLocation.x < 44,
+                      value.translation.width > 90, abs(value.translation.width) > abs(value.translation.height) * 1.5 else { return }
+                onSwipeToChannels()
+            })
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "搜索")
             .navigationTitle("聊天")
             .navigationBarTitleDisplayMode(.inline)
@@ -4175,7 +4188,8 @@ struct SettingsView: View {
                     }
                 }
                 Section("频道") {
-                    NavigationLink("频道列表") { GuildListView(store: store) }
+                    Text("频道列表已移至底部“频道”页面，也可在聊天首页从左边缘右滑打开。")
+                        .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("数据") {
                     Button("清空全部聊天记录", role: .destructive) { confirmClear = true }
