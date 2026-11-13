@@ -113,13 +113,17 @@ private enum CredentialStore {
         guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return nil }
         return String(data: data, encoding: .utf8)
     }
-    static func save(_ value: String) {
+    static func save(_ value: String) -> OSStatus {
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service]
-        SecItemDelete(query as CFDictionary)
+        let attributes: [String: Any] = [
+            kSecValueData as String: Data(value.utf8),
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        ]
+        let updated = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        guard updated == errSecItemNotFound else { return updated }
         var item = query
-        item[kSecValueData as String] = Data(value.utf8)
-        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        SecItemAdd(item as CFDictionary, nil)
+        attributes.forEach { item[$0.key] = $0.value }
+        return SecItemAdd(item as CFDictionary, nil)
     }
     static func clear() { SecItemDelete([kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service] as CFDictionary) }
 }
@@ -242,7 +246,11 @@ final class ChatStore {
             error = nil
             log("登录成功")
             if let data = try? JSONEncoder().encode(LoginInput(username: username, password: password)), let text = String(data: data, encoding: .utf8) {
-                CredentialStore.save(text)
+                let saved = CredentialStore.save(text)
+                if saved != errSecSuccess {
+                    log("凭据保存失败 OSStatus=" + String(saved))
+                    error = "已连接，但无法保存登录凭据（错误 " + String(saved) + "），重启后可能需要重新登录。"
+                }
             }
             startNetworkMonitor()
             await loadProfile()
