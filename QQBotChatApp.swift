@@ -3402,6 +3402,86 @@ enum MessageTextRenderCache {
     static var values: [String: AttributedString] = [:]
 }
 
+struct SharedMessageCard {
+    let raw: String
+    var fields: [String: String] {
+        var result: [String: String] = [:]
+        for line in raw.components(separatedBy: .newlines) {
+            guard let colon = line.firstIndex(of: ":") else { continue }
+            let key = String(line[..<colon]).trimmingCharacters(in: .whitespaces)
+            if ["source", "source_logo", "title", "preview", "url", "jumpUrl", "jump_url"].contains(key) {
+                result[key] = String(line[line.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+            }
+        }
+        return result
+    }
+    var isCard: Bool { raw.hasPrefix("[卡片消息]") && fields["title"] != nil }
+    var title: String { fields["title"] ?? "分享卡片" }
+    var source: String { fields["source"] ?? "分享" }
+    var isMiniApp: Bool { raw.components(separatedBy: .newlines).first?.contains("小程序") == true }
+    func url(_ key: String) -> URL? {
+        guard let value = fields[key], let url = URL(string: value), url.scheme == "https" else { return nil }
+        return url
+    }
+}
+
+struct SharedMessageCardView: View {
+    let card: SharedMessageCard
+    let width: CGFloat
+    @State private var showDetails = false
+    var body: some View {
+        Button { showDetails = true } label: {
+            VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 6) {
+                        AsyncImage(url: card.url("source_logo")) { image in
+                            image.resizable().scaledToFit()
+                        } placeholder: { Image(systemName: "app.fill").foregroundStyle(.blue) }
+                        .frame(width: 20, height: 20).clipShape(RoundedRectangle(cornerRadius: 5))
+                        Text(card.source).font(.system(size: 13)).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    Text(card.title).font(.system(size: 18, weight: .medium))
+                        .foregroundStyle(.primary).lineLimit(2).multilineTextAlignment(.leading)
+                    if let preview = card.url("preview") {
+                        AsyncImage(url: preview) { phase in
+                            if let image = phase.image { image.resizable().scaledToFit() }
+                            else {
+                                RoundedRectangle(cornerRadius: 6).fill(Color(uiColor: .tertiarySystemFill))
+                                    .overlay { Image(systemName: "photo").foregroundStyle(.secondary) }
+                            }
+                        }
+                        .frame(height: (width - 24) * 0.65).frame(maxWidth: .infinity)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                    }
+                }.padding(12)
+                Divider()
+                Label(card.isMiniApp ? "QQ 小程序" : "分享链接", systemImage: card.isMiniApp ? "app.connected.to.app.below.fill" : "link")
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+            }
+            .frame(width: width, alignment: .leading)
+            .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
+            .contentShape(RoundedRectangle(cornerRadius: 16))
+        }.buttonStyle(.plain)
+        .sheet(isPresented: $showDetails) {
+            NavigationStack {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text(card.title).font(.title3.bold())
+                        Text(card.isMiniApp ? "请在 QQ 中打开此小程序。" : "分享卡片详情").foregroundStyle(.secondary)
+                        if !card.isMiniApp, let link = card.url("url") ?? card.url("jumpUrl") ?? card.url("jump_url") {
+                            Link("打开网页", destination: link)
+                        }
+                        DisclosureGroup("原始内容") { Text(card.raw).font(.footnote).textSelection(.enabled) }
+                    }.padding(16)
+                }
+                .navigationTitle("分享卡片").navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("完成") { showDetails = false } } }
+            }
+        }
+    }
+}
+
 struct ForwardedTranscript {
     let raw: String
     var isRecord: Bool {
@@ -3864,7 +3944,16 @@ struct MessageRow: View {
 
     @ViewBuilder
     private var content: some View {
-        if ForwardedTranscript(raw: message.text).isRecord {
+        if SharedMessageCard(raw: message.text).isCard {
+            VStack(alignment: message.fromBot ? .trailing : .leading, spacing: 4) {
+                if !message.fromBot && !mergedTop {
+                    Text(message.authorName).font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(blue).lineLimit(1)
+                }
+                SharedMessageCardView(card: SharedMessageCard(raw: message.text), width: min(280, bubbleMaxWidth))
+                Text(message.date, format: .dateTime.hour().minute()).font(.system(size: 11)).foregroundStyle(.secondary)
+            }
+        } else if ForwardedTranscript(raw: message.text).isRecord {
             VStack(alignment: .leading, spacing: 4) {
                 if !message.fromBot && !mergedTop {
                     Text(message.authorName).font(.system(size: 14, weight: .semibold))
